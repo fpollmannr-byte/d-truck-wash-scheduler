@@ -80,6 +80,7 @@ function AgendaPage() {
       observations: b.observations ?? "",
       start_at: format(new Date(b.start_at), "yyyy-MM-dd'T'HH:mm"),
       status: b.status as WashStatus,
+      supervisor_approved: (b as { supervisor_approved?: boolean }).supervisor_approved ?? false,
     });
     setModalOpen(true);
   }
