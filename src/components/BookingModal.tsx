@@ -23,6 +23,7 @@ export type BookingDraft = {
   observations: string;
   start_at: string; // ISO local "YYYY-MM-DDTHH:mm"
   status: WashStatus;
+  supervisor_approved: boolean;
 };
 
 export function emptyDraft(washerId = "", startISO?: string): BookingDraft {
@@ -37,6 +38,7 @@ export function emptyDraft(washerId = "", startISO?: string): BookingDraft {
     observations: "",
     start_at: format(d, "yyyy-MM-dd'T'HH:mm"),
     status: "programado",
+    supervisor_approved: false,
   };
 }
 
