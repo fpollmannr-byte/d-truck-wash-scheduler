@@ -25,6 +25,7 @@ export type Database = {
           plate: string
           start_at: string
           status: Database["public"]["Enums"]["wash_status"]
+          supervisor_approved: boolean
           updated_at: string
           wash_type: Database["public"]["Enums"]["wash_type"]
           washer_id: string
@@ -39,6 +40,7 @@ export type Database = {
           plate: string
           start_at: string
           status?: Database["public"]["Enums"]["wash_status"]
+          supervisor_approved?: boolean
           updated_at?: string
           wash_type: Database["public"]["Enums"]["wash_type"]
           washer_id: string
@@ -53,6 +55,7 @@ export type Database = {
           plate?: string
           start_at?: string
           status?: Database["public"]["Enums"]["wash_status"]
+          supervisor_approved?: boolean
           updated_at?: string
           wash_type?: Database["public"]["Enums"]["wash_type"]
           washer_id?: string

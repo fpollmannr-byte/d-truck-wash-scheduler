@@ -7,7 +7,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { WASH_TYPES, STATUS_META, computeEndAt, formatDuration, type WashType, type WashStatus } from "@/lib/wash-types";
+import { WASH_TYPES, STATUS_META, computeEndAt, formatDuration, validateSchedule, type WashType, type WashStatus } from "@/lib/wash-types";
+import { Checkbox } from "@/components/ui/checkbox";
+import { AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { Trash2 } from "lucide-react";
@@ -21,6 +23,7 @@ export type BookingDraft = {
   observations: string;
   start_at: string; // ISO local "YYYY-MM-DDTHH:mm"
   status: WashStatus;
+  supervisor_approved: boolean;
 };
 
 export function emptyDraft(washerId = "", startISO?: string): BookingDraft {
@@ -35,6 +38,7 @@ export function emptyDraft(washerId = "", startISO?: string): BookingDraft {
     observations: "",
     start_at: format(d, "yyyy-MM-dd'T'HH:mm"),
     status: "programado",
+    supervisor_approved: false,
   };
 }
 
@@ -63,13 +67,21 @@ export function BookingModal({
 
   if (!d) return null;
 
+  const start_iso_preview = d.start_at ? new Date(d.start_at).toISOString() : null;
+  const end_iso_preview = start_iso_preview ? computeEndAt(start_iso_preview, d.wash_type) : null;
+  const schedule = start_iso_preview && end_iso_preview
+    ? validateSchedule(start_iso_preview, end_iso_preview, d.supervisor_approved)
+    : null;
+
   async function save() {
     if (!d) return;
     if (!d.washer_id) return toast.error("Selecciona un lavador");
     if (!d.plate.trim()) return toast.error("Ingresa la patente");
-    setSaving(true);
     const start_iso = new Date(d.start_at).toISOString();
     const end_iso = computeEndAt(start_iso, d.wash_type);
+    const check = validateSchedule(start_iso, end_iso, d.supervisor_approved);
+    if (!check.ok) return toast.error(check.reason);
+    setSaving(true);
     const payload = {
       washer_id: d.washer_id,
       wash_type: d.wash_type,
@@ -79,6 +91,7 @@ export function BookingModal({
       start_at: start_iso,
       end_at: end_iso,
       status: d.status,
+      supervisor_approved: d.supervisor_approved,
     };
     const res = d.id
       ? await supabase.from("bookings").update(payload).eq("id", d.id)
@@ -160,6 +173,33 @@ export function BookingModal({
             <div className="space-y-1.5 col-span-2">
               <Label>Fecha y hora de inicio</Label>
               <Input type="datetime-local" value={d.start_at} onChange={(e) => setD({ ...d, start_at: e.target.value })} />
+              <p className="text-xs text-muted-foreground">
+                Horario: Lun–Vie 08:00–20:00 · Sábado 08:00–13:00 (con aprobación) · Domingo cerrado.
+              </p>
+            </div>
+
+            {schedule && !schedule.ok && (
+              <div
+                className={`col-span-2 flex items-start gap-2 rounded-md border px-3 py-2 text-xs ${
+                  schedule.needsApproval
+                    ? "border-amber-500/40 bg-amber-500/10 text-amber-200"
+                    : "border-destructive/40 bg-destructive/10 text-destructive"
+                }`}
+              >
+                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                <span>{schedule.reason}</span>
+              </div>
+            )}
+
+            <div className="col-span-2 flex items-center gap-2">
+              <Checkbox
+                id="supervisor-approved"
+                checked={d.supervisor_approved}
+                onCheckedChange={(v) => setD({ ...d, supervisor_approved: v === true })}
+              />
+              <Label htmlFor="supervisor-approved" className="text-sm font-normal cursor-pointer">
+                Cuenta con aprobación de jefatura (fuera de horario o sábados)
+              </Label>
             </div>
 
             <div className="space-y-1.5 col-span-2">
