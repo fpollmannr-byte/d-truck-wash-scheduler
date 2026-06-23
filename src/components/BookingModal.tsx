@@ -67,13 +67,21 @@ export function BookingModal({
 
   if (!d) return null;
 
+  const start_iso_preview = d.start_at ? new Date(d.start_at).toISOString() : null;
+  const end_iso_preview = start_iso_preview ? computeEndAt(start_iso_preview, d.wash_type) : null;
+  const schedule = start_iso_preview && end_iso_preview
+    ? validateSchedule(start_iso_preview, end_iso_preview, d.supervisor_approved)
+    : null;
+
   async function save() {
     if (!d) return;
     if (!d.washer_id) return toast.error("Selecciona un lavador");
     if (!d.plate.trim()) return toast.error("Ingresa la patente");
-    setSaving(true);
     const start_iso = new Date(d.start_at).toISOString();
     const end_iso = computeEndAt(start_iso, d.wash_type);
+    const check = validateSchedule(start_iso, end_iso, d.supervisor_approved);
+    if (!check.ok) return toast.error(check.reason);
+    setSaving(true);
     const payload = {
       washer_id: d.washer_id,
       wash_type: d.wash_type,
@@ -83,6 +91,7 @@ export function BookingModal({
       start_at: start_iso,
       end_at: end_iso,
       status: d.status,
+      supervisor_approved: d.supervisor_approved,
     };
     const res = d.id
       ? await supabase.from("bookings").update(payload).eq("id", d.id)
