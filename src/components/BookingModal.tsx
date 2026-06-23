@@ -173,6 +173,33 @@ export function BookingModal({
             <div className="space-y-1.5 col-span-2">
               <Label>Fecha y hora de inicio</Label>
               <Input type="datetime-local" value={d.start_at} onChange={(e) => setD({ ...d, start_at: e.target.value })} />
+              <p className="text-xs text-muted-foreground">
+                Horario: Lun–Vie 08:00–20:00 · Sábado 08:00–13:00 (con aprobación) · Domingo cerrado.
+              </p>
+            </div>
+
+            {schedule && !schedule.ok && (
+              <div
+                className={`col-span-2 flex items-start gap-2 rounded-md border px-3 py-2 text-xs ${
+                  schedule.needsApproval
+                    ? "border-amber-500/40 bg-amber-500/10 text-amber-200"
+                    : "border-destructive/40 bg-destructive/10 text-destructive"
+                }`}
+              >
+                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                <span>{schedule.reason}</span>
+              </div>
+            )}
+
+            <div className="col-span-2 flex items-center gap-2">
+              <Checkbox
+                id="supervisor-approved"
+                checked={d.supervisor_approved}
+                onCheckedChange={(v) => setD({ ...d, supervisor_approved: v === true })}
+              />
+              <Label htmlFor="supervisor-approved" className="text-sm font-normal cursor-pointer">
+                Cuenta con aprobación de jefatura (fuera de horario o sábados)
+              </Label>
             </div>
 
             <div className="space-y-1.5 col-span-2">
