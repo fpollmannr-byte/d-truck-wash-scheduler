@@ -126,8 +126,18 @@ export type Database = {
       }
     }
     Enums: {
-      app_role: "admin" | "operador"
-      wash_status: "programado" | "en_proceso" | "completado" | "cancelado"
+      app_role: "admin" | "operador" | "jefe" | "lider"
+      wash_status:
+        | "programado"
+        | "en_proceso"
+        | "completado"
+        | "cancelado"
+        | "en_espera"
+        | "en_lavado_interior"
+        | "en_lavado_exterior"
+        | "control_calidad"
+        | "finalizado"
+        | "entregado"
       wash_type:
         | "exterior"
         | "interior_3"
@@ -261,8 +271,19 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["admin", "operador"],
-      wash_status: ["programado", "en_proceso", "completado", "cancelado"],
+      app_role: ["admin", "operador", "jefe", "lider"],
+      wash_status: [
+        "programado",
+        "en_proceso",
+        "completado",
+        "cancelado",
+        "en_espera",
+        "en_lavado_interior",
+        "en_lavado_exterior",
+        "control_calidad",
+        "finalizado",
+        "entregado",
+      ],
       wash_type: [
         "exterior",
         "interior_3",
