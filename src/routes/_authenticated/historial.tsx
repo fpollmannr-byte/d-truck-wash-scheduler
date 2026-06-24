@@ -12,43 +12,56 @@ import { Download } from "lucide-react";
 import * as XLSX from "xlsx";
 
 export const Route = createFileRoute("/_authenticated/historial")({
-  head: () => ({ meta: [{ title: "Historial · DTS Lavados" }] }),
+  head: () => ({ meta: [{ title: "Historial · DTS Planner Pro" }] }),
   component: HistorialPage,
 });
+
+type Row = {
+  id: string;
+  team_id: string;
+  start_at: string;
+  end_at: string;
+  wash_type: WashType;
+  plate: string;
+  client: string | null;
+  observations: string | null;
+  status: WashStatus;
+  teams: { name: string } | null;
+};
 
 function HistorialPage() {
   const [from, setFrom] = useState(format(subDays(new Date(), 30), "yyyy-MM-dd"));
   const [to, setTo] = useState(format(new Date(), "yyyy-MM-dd"));
-  const [washerId, setWasherId] = useState<string>("all");
+  const [teamId, setTeamId] = useState<string>("all");
   const [status, setStatus] = useState<string>("all");
   const [search, setSearch] = useState("");
 
-  const { data: washers = [] } = useQuery({
-    queryKey: ["washers-all"],
-    queryFn: async () => (await supabase.from("washers").select("*").order("name")).data ?? [],
+  const { data: teams = [] } = useQuery({
+    queryKey: ["teams-all"],
+    queryFn: async () => (await supabase.from("teams").select("*").order("name")).data ?? [],
   });
 
-  const { data: rows = [] } = useQuery({
-    queryKey: ["historial", from, to, washerId, status],
+  const { data: rows = [] } = useQuery<Row[]>({
+    queryKey: ["historial", from, to, teamId, status],
     queryFn: async () => {
       let q = supabase
         .from("bookings")
-        .select("*, washers(name)")
+        .select("id, team_id, start_at, end_at, wash_type, plate, client, observations, status, teams(name)")
         .gte("start_at", startOfDay(new Date(from)).toISOString())
         .lte("start_at", endOfDay(new Date(to)).toISOString())
         .order("start_at", { ascending: false });
-      if (washerId !== "all") q = q.eq("washer_id", washerId);
+      if (teamId !== "all") q = q.eq("team_id", teamId);
       if (status !== "all") q = q.eq("status", status as WashStatus);
       const { data, error } = await q;
       if (error) throw error;
-      return data;
+      return (data ?? []) as Row[];
     },
   });
 
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
     if (!s) return rows;
-    return rows.filter((r: any) =>
+    return rows.filter((r) =>
       r.plate?.toLowerCase().includes(s) ||
       r.client?.toLowerCase().includes(s) ||
       r.observations?.toLowerCase().includes(s)
@@ -56,15 +69,15 @@ function HistorialPage() {
   }, [rows, search]);
 
   function exportExcel() {
-    const data = filtered.map((r: any) => ({
+    const data = filtered.map((r) => ({
       Fecha: format(new Date(r.start_at), "yyyy-MM-dd HH:mm"),
       Fin: format(new Date(r.end_at), "yyyy-MM-dd HH:mm"),
-      Lavador: r.washers?.name ?? "",
-      Tipo: WASH_TYPES[r.wash_type as WashType].label,
+      Equipo: r.teams?.name ?? "",
+      Tipo: WASH_TYPES[r.wash_type].label,
       "Duración (min)": Math.round((new Date(r.end_at).getTime() - new Date(r.start_at).getTime()) / 60000),
       Patente: r.plate,
       Cliente: r.client ?? "",
-      Estado: STATUS_META[r.status as WashStatus].label,
+      Estado: STATUS_META[r.status].label,
       Observaciones: r.observations ?? "",
     }));
     const ws = XLSX.utils.json_to_sheet(data);
@@ -87,12 +100,12 @@ function HistorialPage() {
         <div className="space-y-1.5"><Label className="text-xs">Desde</Label><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></div>
         <div className="space-y-1.5"><Label className="text-xs">Hasta</Label><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></div>
         <div className="space-y-1.5">
-          <Label className="text-xs">Lavador</Label>
-          <Select value={washerId} onValueChange={setWasherId}>
+          <Label className="text-xs">Equipo</Label>
+          <Select value={teamId} onValueChange={setTeamId}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos</SelectItem>
-              {washers.map((w) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}
+              {teams.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
@@ -117,7 +130,7 @@ function HistorialPage() {
           <thead className="bg-surface-2 text-[10px] uppercase tracking-widest text-muted-foreground">
             <tr>
               <th className="px-3 py-2 text-left">Fecha</th>
-              <th className="px-3 py-2 text-left">Lavador</th>
+              <th className="px-3 py-2 text-left">Equipo</th>
               <th className="px-3 py-2 text-left">Tipo</th>
               <th className="px-3 py-2 text-left">Patente</th>
               <th className="px-3 py-2 text-left">Cliente</th>
@@ -128,13 +141,13 @@ function HistorialPage() {
             {filtered.length === 0 && (
               <tr><td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">Sin resultados.</td></tr>
             )}
-            {filtered.map((r: any) => {
-              const meta = STATUS_META[r.status as WashStatus];
+            {filtered.map((r) => {
+              const meta = STATUS_META[r.status];
               return (
                 <tr key={r.id} className="border-t border-border hover:bg-surface-2">
                   <td className="px-3 py-2 font-mono text-xs">{format(new Date(r.start_at), "yyyy-MM-dd HH:mm")}</td>
-                  <td className="px-3 py-2">{r.washers?.name}</td>
-                  <td className="px-3 py-2 text-xs">{WASH_TYPES[r.wash_type as WashType].short}</td>
+                  <td className="px-3 py-2">{r.teams?.name ?? "—"}</td>
+                  <td className="px-3 py-2 text-xs">{WASH_TYPES[r.wash_type].short}</td>
                   <td className="px-3 py-2 font-mono font-semibold">{r.plate}</td>
                   <td className="px-3 py-2 text-muted-foreground">{r.client ?? "—"}</td>
                   <td className="px-3 py-2">

@@ -3,16 +3,16 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { startOfDay, endOfDay, startOfWeek, addDays, format } from "date-fns";
 import { es } from "date-fns/locale";
-import { WASH_TYPES, STATUS_META, type WashType, type WashStatus } from "@/lib/wash-types";
-import { Calendar, Clock, CheckCircle2, AlertCircle } from "lucide-react";
+import { STATUS_META, ACTIVE_STATUSES, CLOSED_STATUSES, type WashStatus } from "@/lib/wash-types";
+import { Calendar, Clock, CheckCircle2, AlertCircle, Activity } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid } from "recharts";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
-  head: () => ({ meta: [{ title: "Dashboard · DTS Lavados" }] }),
+  head: () => ({ meta: [{ title: "Dashboard · DTS Planner Pro" }] }),
   component: DashboardPage,
 });
 
-const SHIFT_MINUTES = (22 - 7) * 60; // 7am - 10pm = 900 min
+const SHIFT_MINUTES = (20 - 8) * 60; // operación 08–20 = 720 min
 
 function DashboardPage() {
   const today = new Date();
@@ -21,34 +21,66 @@ function DashboardPage() {
   const weekFrom = startOfWeek(today, { weekStartsOn: 1 });
   const weekTo = endOfDay(addDays(weekFrom, 6));
 
-  const { data: washers = [] } = useQuery({
-    queryKey: ["washers"],
-    queryFn: async () => (await supabase.from("washers").select("*").eq("active", true).order("name")).data ?? [],
+  const { data: teams = [] } = useQuery({
+    queryKey: ["teams"],
+    queryFn: async () => (await supabase.from("teams").select("*").eq("active", true).order("name")).data ?? [],
+  });
+
+  const { data: lanes = [] } = useQuery({
+    queryKey: ["lanes"],
+    queryFn: async () => (await supabase.from("lanes").select("*").eq("active", true).order("name")).data ?? [],
   });
 
   const { data: today_bookings = [] } = useQuery({
     queryKey: ["bookings-today"],
-    queryFn: async () => (await supabase.from("bookings").select("*").gte("start_at", dayFrom.toISOString()).lte("start_at", dayTo.toISOString())).data ?? [],
+    queryFn: async () => (await supabase.from("bookings")
+      .select("id, team_id, status, start_at, end_at, booking_lanes(lane_id)")
+      .gte("start_at", dayFrom.toISOString()).lte("start_at", dayTo.toISOString())).data ?? [],
   });
 
   const { data: week_bookings = [] } = useQuery({
     queryKey: ["bookings-week"],
-    queryFn: async () => (await supabase.from("bookings").select("*").gte("start_at", weekFrom.toISOString()).lte("start_at", weekTo.toISOString())).data ?? [],
+    queryFn: async () => (await supabase.from("bookings")
+      .select("id, status, start_at")
+      .gte("start_at", weekFrom.toISOString()).lte("start_at", weekTo.toISOString())).data ?? [],
   });
 
-  const usedByWasher = washers.map((w) => {
+  const usedByTeam = teams.map((t) => {
     const used = today_bookings
-      .filter((b) => b.washer_id === w.id && b.status !== "cancelado")
+      .filter((b) => b.team_id === t.id && b.status !== "cancelado")
       .reduce((acc, b) => acc + (new Date(b.end_at).getTime() - new Date(b.start_at).getTime()) / 60000, 0);
-    return { ...w, used, pct: Math.min(100, Math.round((used / SHIFT_MINUTES) * 100)), available: Math.max(0, SHIFT_MINUTES - used) };
+    return { ...t, used, pct: Math.min(100, Math.round((used / SHIFT_MINUTES) * 100)), available: Math.max(0, SHIFT_MINUTES - used) };
   });
 
-  const totalUsed = usedByWasher.reduce((a, w) => a + w.used, 0);
-  const totalCapacity = washers.length * SHIFT_MINUTES || 1;
-  const globalPct = Math.round((totalUsed / totalCapacity) * 100);
+  const totalUsed = usedByTeam.reduce((a, t) => a + t.used, 0);
+  const totalCapacity = teams.length * SHIFT_MINUTES || 1;
+  const personnelPct = Math.round((totalUsed / totalCapacity) * 100);
 
-  const statusCounts: Record<WashStatus, number> = { programado: 0, en_proceso: 0, completado: 0, cancelado: 0 };
-  today_bookings.forEach((b) => { statusCounts[b.status as WashStatus]++; });
+  // Utilización de pistas: minutos ocupados sumados / (pistas activas * jornada)
+  const laneMinutes = today_bookings
+    .filter((b) => b.status !== "cancelado")
+    .reduce((acc, b) => {
+      const m = (new Date(b.end_at).getTime() - new Date(b.start_at).getTime()) / 60000;
+      const n = (b.booking_lanes ?? []).length;
+      return acc + m * n;
+    }, 0);
+  const laneCapacity = (lanes.length || 1) * SHIFT_MINUTES;
+  const lanesPct = Math.min(100, Math.round((laneMinutes / laneCapacity) * 100));
+
+  const counts: Record<WashStatus, number> = {
+    programado: 0, en_espera: 0, en_proceso: 0,
+    en_lavado_interior: 0, en_lavado_exterior: 0, control_calidad: 0,
+    completado: 0, finalizado: 0, entregado: 0, cancelado: 0,
+  };
+  today_bookings.forEach((b) => { counts[b.status as WashStatus]++; });
+  const activeCount = ACTIVE_STATUSES.reduce((a, s) => a + counts[s], 0);
+  const closedCount = CLOSED_STATUSES.filter((s) => s !== "cancelado").reduce((a, s) => a + counts[s], 0);
+
+  // Atrasados: fin pasado y aún activo
+  const now = Date.now();
+  const overdue = today_bookings.filter((b) =>
+    ACTIVE_STATUSES.includes(b.status as WashStatus) && new Date(b.end_at).getTime() < now
+  ).length;
 
   const weekChart = Array.from({ length: 7 }, (_, i) => {
     const d = addDays(weekFrom, i);
@@ -60,55 +92,62 @@ function DashboardPage() {
   return (
     <div className="p-4 md:p-6 space-y-6">
       <div>
-        <h1 className="text-xl md:text-2xl font-bold tracking-tight">Dashboard</h1>
+        <h1 className="text-xl md:text-2xl font-bold tracking-tight">Dashboard Ejecutivo</h1>
         <p className="text-sm text-muted-foreground capitalize">{format(today, "EEEE d 'de' MMMM yyyy", { locale: es })}</p>
       </div>
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <Kpi icon={<Calendar className="w-4 h-4" />} label="Lavados hoy" value={today_bookings.length.toString()} accent="var(--accent)" />
-        <Kpi icon={<Clock className="w-4 h-4" />} label="Utilización global" value={`${globalPct}%`} accent="var(--primary)" />
-        <Kpi icon={<CheckCircle2 className="w-4 h-4" />} label="Completados" value={statusCounts.completado.toString()} accent="var(--status-done)" />
-        <Kpi icon={<AlertCircle className="w-4 h-4" />} label="Cancelados" value={statusCounts.cancelado.toString()} accent="var(--destructive)" />
+        <Kpi icon={<Activity className="w-4 h-4" />} label="En proceso" value={activeCount.toString()} accent="var(--status-progress)" />
+        <Kpi icon={<CheckCircle2 className="w-4 h-4" />} label="Finalizados" value={closedCount.toString()} accent="var(--status-done)" />
+        <Kpi icon={<Clock className="w-4 h-4" />} label="Util. personal" value={`${personnelPct}%`} accent="var(--primary)" />
+        <Kpi icon={<AlertCircle className="w-4 h-4" />} label="Atrasados" value={overdue.toString()} accent="var(--destructive)" />
       </div>
 
-      {/* Status grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {(Object.keys(STATUS_META) as WashStatus[]).map((s) => (
-          <div key={s} className="erp-panel p-4">
+          <div key={s} className="erp-panel p-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs uppercase tracking-widest text-muted-foreground">{STATUS_META[s].label}</span>
+              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">{STATUS_META[s].label}</span>
               <span className="w-2 h-2 rounded-full" style={{ background: STATUS_META[s].color }} />
             </div>
-            <div className="text-2xl font-mono font-bold mt-2">{statusCounts[s]}</div>
+            <div className="text-2xl font-mono font-bold mt-1">{counts[s]}</div>
           </div>
         ))}
       </div>
 
       <div className="grid md:grid-cols-2 gap-6">
-        {/* Utilización por lavador */}
         <div className="erp-panel p-4">
-          <h2 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground mb-4">Utilización por lavador · Hoy</h2>
+          <h2 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground mb-4">Utilización por equipo · Hoy</h2>
           <div className="space-y-4">
-            {usedByWasher.length === 0 && <p className="text-sm text-muted-foreground">Sin lavadores activos.</p>}
-            {usedByWasher.map((w) => (
-              <div key={w.id}>
+            {usedByTeam.length === 0 && <p className="text-sm text-muted-foreground">Sin equipos activos.</p>}
+            {usedByTeam.map((t) => (
+              <div key={t.id}>
                 <div className="flex justify-between text-xs mb-1">
-                  <span className="font-medium">{w.name}</span>
+                  <span className="font-medium">{t.name}</span>
                   <span className="font-mono text-muted-foreground">
-                    {Math.round(w.used / 60 * 10) / 10}h / {SHIFT_MINUTES / 60}h · <span className="text-primary">{w.pct}%</span>
+                    {Math.round(t.used / 60 * 10) / 10}h / {SHIFT_MINUTES / 60}h · <span className="text-primary">{t.pct}%</span>
                   </span>
                 </div>
                 <div className="h-2 rounded-full bg-muted overflow-hidden">
-                  <div className="h-full rounded-full" style={{ width: `${w.pct}%`, background: "var(--primary)" }} />
+                  <div className="h-full rounded-full" style={{ width: `${t.pct}%`, background: "var(--primary)" }} />
                 </div>
-                <div className="text-[10px] text-muted-foreground mt-1">Disponible: {Math.round(w.available / 60 * 10) / 10}h</div>
+                <div className="text-[10px] text-muted-foreground mt-1">Disponible: {Math.round(t.available / 60 * 10) / 10}h</div>
               </div>
             ))}
+
+            <div className="pt-3 mt-3 border-t border-border">
+              <div className="flex justify-between text-xs mb-1">
+                <span className="font-medium">Pistas (4 totales)</span>
+                <span className="font-mono text-accent">{lanesPct}%</span>
+              </div>
+              <div className="h-2 rounded-full bg-muted overflow-hidden">
+                <div className="h-full rounded-full" style={{ width: `${lanesPct}%`, background: "var(--accent)" }} />
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Semana */}
         <div className="erp-panel p-4">
           <h2 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground mb-4">Lavados por día · Esta semana</h2>
           <div className="h-64">

@@ -1,5 +1,5 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Calendar, LayoutDashboard, History, Users, LogOut, Truck, Menu } from "lucide-react";
+import { Calendar, LayoutDashboard, History, Boxes, LogOut, Truck, Menu } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -10,7 +10,7 @@ const NAV = [
   { to: "/agenda",     label: "Agenda",    icon: Calendar },
   { to: "/dashboard",  label: "Dashboard", icon: LayoutDashboard },
   { to: "/historial",  label: "Historial", icon: History },
-  { to: "/lavadores",  label: "Lavadores", icon: Users },
+  { to: "/recursos",   label: "Recursos",  icon: Boxes },
 ] as const;
 
 export function AppLayout({ children }: { children: ReactNode }) {
@@ -28,7 +28,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen flex bg-background text-foreground">
-      {/* Sidebar */}
       <aside
         className={cn(
           "fixed md:sticky top-0 left-0 z-40 h-screen w-60 bg-sidebar border-r border-sidebar-border flex flex-col transition-transform",
@@ -40,8 +39,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
             <Truck className="w-5 h-5 text-primary-foreground" />
           </div>
           <div className="leading-tight">
-            <div className="text-sm font-bold">DTS Lavados</div>
-            <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Agenda · ERP</div>
+            <div className="text-sm font-bold">DTS Planner Pro</div>
+            <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Operación · Lavados</div>
           </div>
         </div>
         <nav className="flex-1 p-3 space-y-1">
@@ -72,7 +71,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      {/* Mobile overlay */}
       {open && <div onClick={() => setOpen(false)} className="md:hidden fixed inset-0 z-30 bg-black/50" />}
 
       <div className="flex-1 min-w-0 flex flex-col">
@@ -80,7 +78,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
           <Button variant="ghost" size="icon" onClick={() => setOpen(true)}>
             <Menu className="w-5 h-5" />
           </Button>
-          <span className="ml-3 text-sm font-semibold">DTS Lavados</span>
+          <span className="ml-3 text-sm font-semibold">DTS Planner Pro</span>
         </header>
         <main className="flex-1 min-w-0 overflow-auto">{children}</main>
       </div>

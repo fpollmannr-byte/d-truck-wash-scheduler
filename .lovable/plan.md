@@ -1,74 +1,88 @@
-# Agenda DTS Lavados
 
-App web para programar lavados de camiones con calendario tipo taller, recursos (lavadores), validación de traslapes y dashboard.
+# DTS Planner Pro — Plan por fases
 
-## Stack
-- TanStack Start + React + Tailwind v4
-- Lovable Cloud (Supabase) para datos y auth
-- shadcn/ui, dnd-kit (drag & drop), date-fns, xlsx (export)
+Renombramos la app a **DTS Planner Pro** y refactorizamos la operación a un modelo industrial real (equipos, pistas, turnos, colaciones, roles, KPIs, reportes).
 
-## Modelo de datos
+## Fase 1 — Recursos operacionales + Roles  (esta entrega)
 
-**washers** (lavadores)
-- id, name, active, created_at
+### Modelo de datos (migración)
 
-**bookings** (lavados)
-- id, washer_id (fk), wash_type (enum), plate, client, observations
-- start_at, end_at (calculados según tipo)
-- status: programado | en_proceso | completado | cancelado
-- created_by, created_at
+Reemplazo de `washers` por `teams` y adición de `lanes`, `shifts` y nuevos campos en `bookings`.
 
-**Tipos y duraciones** (constantes en frontend):
-- exterior: 40 min
-- interior_3: 225 min (3h + 45min ext)
-- interior_4: 285 min
-- interior_5: 345 min
-- interior_6: 345 min
+- `teams` — Equipo A / Equipo B (semilla). Campos: name, active.
+- `lanes` — Pista 1..4 (semilla). Campos: name, active.
+- `shifts` — turnos configurables. Semilla:
+  - Turno A: 08:00–20:00, colación 14:00–15:00
+  - Turno B: 11:00–20:00, colación 15:00–16:00
+- `bookings`:
+  - `washer_id` → renombrado a `team_id` (FK `teams`)
+  - nueva tabla puente `booking_lanes` (booking_id, lane_id) — ext usa 1 pista, interior usa 2
+  - nuevo estado enum ampliado: `programado | en_espera | en_lavado_interior | en_lavado_exterior | control_calidad | finalizado | entregado | cancelado`
+- `app_role` enum se amplía: `admin | jefe | lider | operador`
+- Trigger `check_booking_overlap` se actualiza para validar:
+  - máximo 2 bookings simultáneos (capacidad total)
+  - mismo equipo no solapado
+  - pistas no solapadas (vía `booking_lanes`)
+  - solo lun-vie 08–20 (sáb 08–13 con aprobación, según regla previa)
+  - bloqueo de colaciones cuando no hay dotación cubierta
 
-RLS: usuarios autenticados leen/escriben; roles vía tabla `user_roles` (admin/operador).
+### Asignación automática
 
-## Pantallas
+Al crear booking el usuario selecciona tipo + hora de inicio:
+- el server fn `createBooking` busca el primer equipo libre (A→B)
+- busca N pistas libres (1 o 2 según tipo)
+- si no hay recurso, devuelve conflicto con sugerencia del siguiente slot
 
-1. **Auth** — login/registro email+password
-2. **Agenda** (`/`) — vista principal tipo taller
-   - Toggle Día / Semana / Mes
-   - Eje Y = lavadores, eje X = horas (vista día/semana)
-   - Bloques arrastrables, redimensionables fijos por tipo
-   - Click bloque → editar / cambiar estado
-   - Botón "+ Nuevo lavado" → modal con tipo, patente, cliente, lavador, fecha/hora, observaciones
-   - Validación traslape antes de guardar (server-side via server fn)
-3. **Dashboard** (`/dashboard`)
-   - % utilización diaria por lavador
-   - Horas disponibles hoy
-   - Conteo por estado
-   - Lavados de la semana (gráfico)
-4. **Historial** (`/historial`)
-   - Tabla filtrable (rango fecha, lavador, patente, cliente, estado)
-   - Botón "Exportar Excel"
-5. **Lavadores** (`/lavadores`) — CRUD simple
+### UI
 
-## Lógica clave
+- Sidebar renombrado **DTS Planner Pro**, color y header industrial.
+- Agenda: filas = Equipo A / Equipo B (en vez de lavadores). Toggle alternativo "Vista por Pista".
+- Modal de booking: selector de tipo, hora, cliente (texto), patente; muestra recursos asignados automáticamente.
+- Página "Recursos" reemplaza "Lavadores": tabs Equipos / Pistas / Turnos (CRUD básico, solo Admin/Jefe editan).
+- Nueva página "Operación" (vista de timeline por pista).
 
-- `computeEndAt(start, type)` calcula `end_at`
-- Server fn `createBooking` valida traslape con `EXISTS` por washer_id e intervalo
-- Drag & drop: al soltar, calcula nuevo start, llama `updateBooking` con re-validación
-- Estados con colores: azul/amarillo/verde/gris
+### Roles
 
-## Diseño
+- Migración crea roles: `admin, jefe, lider, operador`.
+- `has_role(_user_id, _role)` ya existe; agregamos `has_any_role(_user_id, _roles[])`.
+- Trigger `handle_new_user` mantiene default `operador`.
+- Gates en UI:
+  - Admin/Jefe: todo
+  - Líder: crear/editar bookings, no recursos
+  - Operador: solo lectura
+- Acción "Promover usuario" (solo admin) en página Configuración.
 
-ERP industrial: fondo oscuro slate, acentos ámbar/cian, tipografía Inter, densidad alta, badges por estado, grid con líneas finas.
+### Estados visuales
 
-## Pasos de implementación
+Verde=disponible (slot libre), Azul=programado, Amarillo=en proceso (interior/exterior/QC), Rojo=atrasado (fin < ahora && !finalizado), Gris=finalizado/entregado, Tachado=cancelado.
 
-1. Enable Lovable Cloud
-2. Migración: tablas + RLS + grants + roles
-3. Design system en `src/styles.css` (tema industrial oscuro)
-4. Layout con sidebar de navegación
-5. Página Auth
-6. Página Agenda con vista día (prioritaria) + semana + mes
-7. Modal nuevo/editar lavado con validación
-8. Drag & drop con dnd-kit
-9. Dashboard
-10. Historial + exportación Excel
-11. CRUD lavadores
-12. Responsive (sidebar colapsable en móvil, agenda scroll horizontal)
+---
+
+## Fase 2 — Clientes y Camiones (siguiente)
+
+- Tablas `clients` (rut, empresa, contacto, tel, email, obs) y `trucks` (patente, cliente_id, tipo, compartimentos, obs).
+- Booking referencia `client_id` y `truck_id` (con autocomplete + creación inline).
+- Historial por cliente y por camión.
+
+## Fase 3 — Dashboard + KPIs
+
+- KPIs en tiempo real: utilización personal y pistas, productividad día/sem/mes, rendimiento Equipo A vs B, cumplimiento, atrasados, horas muertas.
+- Gráficos comparativos (recharts).
+- Alertas en banner cuando: sin equipos, sin pistas, conflictos, atrasos, sobreutilización.
+
+## Fase 4 — Reportes Excel + PDF
+
+- Excel ya disponible; ampliar plantillas diaria/semanal/mensual.
+- PDF con jsPDF + autoTable: reporte ejecutivo con KPIs, gráficos embebidos y detalle.
+
+---
+
+## Entregable de esta vuelta (Fase 1)
+
+1. Migración: `teams`, `lanes`, `shifts`, `booking_lanes`, ampliación enums status y roles, trigger nuevo.
+2. Reescritura de `BookingModal` y página Agenda para Equipos/Pistas.
+3. Renombrar “Lavadores” → “Recursos” con tabs.
+4. Sidebar/branding DTS Planner Pro.
+5. Hook `useRole` y gates de UI.
+
+Confirma para ejecutar la Fase 1.

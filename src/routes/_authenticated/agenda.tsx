@@ -11,15 +11,28 @@ import { BookingModal, emptyDraft, type BookingDraft } from "@/components/Bookin
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/agenda")({
-  head: () => ({ meta: [{ title: "Agenda · DTS Lavados" }] }),
+  head: () => ({ meta: [{ title: "Agenda · DTS Planner Pro" }] }),
   component: AgendaPage,
 });
 
 type View = "dia" | "semana" | "mes";
+type Booking = {
+  id: string;
+  team_id: string;
+  wash_type: WashType;
+  plate: string;
+  client: string | null;
+  observations: string | null;
+  start_at: string;
+  end_at: string;
+  status: WashStatus;
+  supervisor_approved: boolean;
+  booking_lanes: { lane_id: string }[];
+};
 
 const START_HOUR = 7;
 const END_HOUR = 22;
-const HOUR_PX = 60; // 1px per minute
+const HOUR_PX = 60;
 
 function AgendaPage() {
   const [view, setView] = useState<View>("dia");
@@ -36,26 +49,26 @@ function AgendaPage() {
     return { from: startOfMonth(date), to: endOfMonth(date) };
   }, [date, view]);
 
-  const { data: washers = [] } = useQuery({
-    queryKey: ["washers"],
+  const { data: teams = [] } = useQuery({
+    queryKey: ["teams"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("washers").select("*").eq("active", true).order("name");
+      const { data, error } = await supabase.from("teams").select("*").eq("active", true).order("name");
       if (error) throw error;
       return data;
     },
   });
 
-  const { data: bookings = [] } = useQuery({
+  const { data: bookings = [] } = useQuery<Booking[]>({
     queryKey: ["bookings", range.from.toISOString(), range.to.toISOString()],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("bookings")
-        .select("*")
+        .select("id, team_id, wash_type, plate, client, observations, start_at, end_at, status, supervisor_approved, booking_lanes(lane_id)")
         .gte("start_at", range.from.toISOString())
         .lte("start_at", range.to.toISOString())
         .order("start_at");
       if (error) throw error;
-      return data;
+      return (data ?? []) as Booking[];
     },
   });
 
@@ -65,22 +78,22 @@ function AgendaPage() {
     else setDate(dir === 1 ? addMonths(date, 1) : subMonths(date, 1));
   }
 
-  function openNew(washerId?: string, startISO?: string) {
-    setDraft(emptyDraft(washerId ?? washers[0]?.id ?? "", startISO));
+  function openNew(teamId?: string, startISO?: string) {
+    setDraft(emptyDraft(teamId ?? teams[0]?.id ?? "", startISO));
     setModalOpen(true);
   }
 
-  function openEdit(b: typeof bookings[number]) {
+  function openEdit(b: Booking) {
     setDraft({
       id: b.id,
-      washer_id: b.washer_id,
-      wash_type: b.wash_type as WashType,
+      team_id: b.team_id,
+      wash_type: b.wash_type,
       plate: b.plate,
       client: b.client ?? "",
       observations: b.observations ?? "",
       start_at: format(new Date(b.start_at), "yyyy-MM-dd'T'HH:mm"),
-      status: b.status as WashStatus,
-      supervisor_approved: (b as { supervisor_approved?: boolean }).supervisor_approved ?? false,
+      status: b.status,
+      supervisor_approved: b.supervisor_approved ?? false,
     });
     setModalOpen(true);
   }
@@ -92,10 +105,9 @@ function AgendaPage() {
 
   return (
     <div className="p-4 md:p-6 space-y-4">
-      {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3 justify-between">
         <div>
-          <h1 className="text-xl md:text-2xl font-bold tracking-tight">Agenda Taller</h1>
+          <h1 className="text-xl md:text-2xl font-bold tracking-tight">Agenda Operacional</h1>
           <p className="text-sm text-muted-foreground capitalize">{headerLabel}</p>
         </div>
         <div className="flex items-center gap-2">
@@ -118,8 +130,8 @@ function AgendaPage() {
         </div>
       </div>
 
-      {view === "dia"    && <DayView   date={date} washers={washers} bookings={bookings} onNew={openNew} onEdit={openEdit} />}
-      {view === "semana" && <WeekView  from={range.from} washers={washers} bookings={bookings} onEdit={openEdit} />}
+      {view === "dia"    && <DayView   date={date} teams={teams} bookings={bookings} onNew={openNew} onEdit={openEdit} />}
+      {view === "semana" && <WeekView  from={range.from} teams={teams} bookings={bookings} onEdit={openEdit} />}
       {view === "mes"    && <MonthView date={date} bookings={bookings} onPickDay={(d) => { setDate(d); setView("dia"); }} />}
 
       <BookingModal open={modalOpen} onOpenChange={setModalOpen} draft={draft} />
@@ -128,13 +140,13 @@ function AgendaPage() {
 }
 
 function DayView({
-  date, washers, bookings, onNew, onEdit,
+  date, teams, bookings, onNew, onEdit,
 }: {
   date: Date;
-  washers: { id: string; name: string }[];
-  bookings: any[];
-  onNew: (washerId?: string, startISO?: string) => void;
-  onEdit: (b: any) => void;
+  teams: { id: string; name: string }[];
+  bookings: Booking[];
+  onNew: (teamId?: string, startISO?: string) => void;
+  onEdit: (b: Booking) => void;
 }) {
   const hours = Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, i) => START_HOUR + i);
   const dayStart = new Date(date); dayStart.setHours(START_HOUR, 0, 0, 0);
@@ -142,9 +154,8 @@ function DayView({
   return (
     <div className="erp-panel overflow-x-auto">
       <div className="min-w-[800px]">
-        {/* Hour ruler */}
         <div className="grid border-b border-border" style={{ gridTemplateColumns: `140px repeat(${hours.length}, ${HOUR_PX}px)` }}>
-          <div className="px-3 py-2 text-[10px] uppercase tracking-widest text-muted-foreground border-r border-border bg-surface-2">Lavador</div>
+          <div className="px-3 py-2 text-[10px] uppercase tracking-widest text-muted-foreground border-r border-border bg-surface-2">Equipo</div>
           {hours.map((h) => (
             <div key={h} className="px-1 py-2 text-xs font-mono text-muted-foreground border-r border-border bg-surface-2 text-center">
               {String(h).padStart(2, "0")}:00
@@ -152,19 +163,17 @@ function DayView({
           ))}
         </div>
 
-        {/* Rows */}
-        {washers.length === 0 && (
-          <div className="p-6 text-sm text-muted-foreground">No hay lavadores activos. Agrega uno en la sección Lavadores.</div>
+        {teams.length === 0 && (
+          <div className="p-6 text-sm text-muted-foreground">No hay equipos activos.</div>
         )}
-        {washers.map((w) => {
-          const wb = bookings.filter((b) => b.washer_id === w.id);
+        {teams.map((t) => {
+          const wb = bookings.filter((b) => b.team_id === t.id);
           return (
-            <div key={w.id} className="grid border-b border-border" style={{ gridTemplateColumns: `140px 1fr` }}>
-              <div className="px-3 py-3 text-sm font-medium border-r border-border bg-surface-2 flex items-center">
-                {w.name}
+            <div key={t.id} className="grid border-b border-border" style={{ gridTemplateColumns: `140px 1fr` }}>
+              <div className="px-3 py-3 text-sm font-semibold border-r border-border bg-surface-2 flex items-center">
+                {t.name}
               </div>
               <div className="relative" style={{ height: 88, width: HOUR_PX * hours.length }}>
-                {/* Grid lines */}
                 {hours.map((h, i) => (
                   <div
                     key={h}
@@ -172,11 +181,10 @@ function DayView({
                     style={{ left: i * HOUR_PX, width: HOUR_PX }}
                     onClick={() => {
                       const d = new Date(date); d.setHours(h, 0, 0, 0);
-                      onNew(w.id, d.toISOString());
+                      onNew(t.id, d.toISOString());
                     }}
                   />
                 ))}
-                {/* Bookings */}
                 {wb.map((b) => {
                   const s = new Date(b.start_at);
                   const e = new Date(b.end_at);
@@ -185,20 +193,16 @@ function DayView({
                   if (startMin + durMin <= 0 || startMin >= hours.length * 60) return null;
                   const left = Math.max(0, startMin);
                   const width = Math.min(hours.length * 60 - left, durMin);
-                  const meta = STATUS_META[b.status as WashStatus];
+                  const meta = STATUS_META[b.status];
                   return (
                     <button
                       key={b.id}
                       onClick={() => onEdit(b)}
                       className="absolute top-1 bottom-1 rounded-md text-left px-2 py-1 text-xs overflow-hidden border-l-4 hover:brightness-110 transition"
-                      style={{
-                        left, width,
-                        background: meta.bg,
-                        borderColor: meta.color,
-                      }}
+                      style={{ left, width, background: meta.bg, borderColor: meta.color }}
                     >
                       <div className="font-semibold font-mono truncate">{b.plate}</div>
-                      <div className="truncate opacity-80">{WASH_TYPES[b.wash_type as WashType].short} · {b.client ?? "—"}</div>
+                      <div className="truncate opacity-80">{WASH_TYPES[b.wash_type].short} · {b.client ?? "—"}</div>
                     </button>
                   );
                 })}
@@ -212,33 +216,33 @@ function DayView({
 }
 
 function WeekView({
-  from, washers, bookings, onEdit,
+  from, teams, bookings, onEdit,
 }: {
   from: Date;
-  washers: { id: string; name: string }[];
-  bookings: any[];
-  onEdit: (b: any) => void;
+  teams: { id: string; name: string }[];
+  bookings: Booking[];
+  onEdit: (b: Booking) => void;
 }) {
   const days = Array.from({ length: 7 }, (_, i) => addDays(from, i));
   return (
     <div className="erp-panel overflow-x-auto">
       <div className="min-w-[800px] grid" style={{ gridTemplateColumns: `140px repeat(7, 1fr)` }}>
-        <div className="px-3 py-2 text-[10px] uppercase tracking-widest text-muted-foreground border-r border-b border-border bg-surface-2">Lavador</div>
+        <div className="px-3 py-2 text-[10px] uppercase tracking-widest text-muted-foreground border-r border-b border-border bg-surface-2">Equipo</div>
         {days.map((d) => (
           <div key={d.toISOString()} className="px-2 py-2 text-xs font-medium border-r border-b border-border bg-surface-2 text-center">
             <div className="uppercase text-muted-foreground">{format(d, "EEE", { locale: es })}</div>
             <div className="font-mono">{format(d, "d/MM")}</div>
           </div>
         ))}
-        {washers.map((w) => (
-          <>
-            <div key={w.id + "-name"} className="px-3 py-2 text-sm border-r border-b border-border bg-surface-2">{w.name}</div>
+        {teams.map((t) => (
+          <div key={t.id} className="contents">
+            <div className="px-3 py-2 text-sm border-r border-b border-border bg-surface-2 font-semibold">{t.name}</div>
             {days.map((d) => {
-              const list = bookings.filter((b) => b.washer_id === w.id && isSameDay(new Date(b.start_at), d));
+              const list = bookings.filter((b) => b.team_id === t.id && isSameDay(new Date(b.start_at), d));
               return (
-                <div key={w.id + d.toISOString()} className="border-r border-b border-border p-1 space-y-1 min-h-20">
+                <div key={t.id + d.toISOString()} className="border-r border-b border-border p-1 space-y-1 min-h-20">
                   {list.map((b) => {
-                    const meta = STATUS_META[b.status as WashStatus];
+                    const meta = STATUS_META[b.status];
                     return (
                       <button
                         key={b.id}
@@ -255,7 +259,7 @@ function WeekView({
                 </div>
               );
             })}
-          </>
+          </div>
         ))}
       </div>
     </div>
@@ -266,7 +270,7 @@ function MonthView({
   date, bookings, onPickDay,
 }: {
   date: Date;
-  bookings: any[];
+  bookings: Booking[];
   onPickDay: (d: Date) => void;
 }) {
   const monthStart = startOfMonth(date);
@@ -300,7 +304,7 @@ function MonthView({
               </div>
               <div className="space-y-0.5">
                 {items.slice(0, 3).map((b) => {
-                  const meta = STATUS_META[b.status as WashStatus];
+                  const meta = STATUS_META[b.status];
                   return (
                     <div key={b.id} className="text-[10px] truncate rounded px-1 py-0.5 border-l-2" style={{ background: meta.bg, borderColor: meta.color }}>
                       <span className="font-mono">{format(new Date(b.start_at), "HH:mm")}</span> {b.plate}

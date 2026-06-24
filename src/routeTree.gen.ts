@@ -12,7 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as AuthenticatedLavadoresRouteImport } from './routes/_authenticated/lavadores'
+import { Route as AuthenticatedRecursosRouteImport } from './routes/_authenticated/recursos'
 import { Route as AuthenticatedHistorialRouteImport } from './routes/_authenticated/historial'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedAgendaRouteImport } from './routes/_authenticated/agenda'
@@ -31,9 +31,9 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedLavadoresRoute = AuthenticatedLavadoresRouteImport.update({
-  id: '/lavadores',
-  path: '/lavadores',
+const AuthenticatedRecursosRoute = AuthenticatedRecursosRouteImport.update({
+  id: '/recursos',
+  path: '/recursos',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedHistorialRoute = AuthenticatedHistorialRouteImport.update({
@@ -58,7 +58,7 @@ export interface FileRoutesByFullPath {
   '/agenda': typeof AuthenticatedAgendaRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/historial': typeof AuthenticatedHistorialRoute
-  '/lavadores': typeof AuthenticatedLavadoresRoute
+  '/recursos': typeof AuthenticatedRecursosRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -66,7 +66,7 @@ export interface FileRoutesByTo {
   '/agenda': typeof AuthenticatedAgendaRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/historial': typeof AuthenticatedHistorialRoute
-  '/lavadores': typeof AuthenticatedLavadoresRoute
+  '/recursos': typeof AuthenticatedRecursosRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -76,7 +76,7 @@ export interface FileRoutesById {
   '/_authenticated/agenda': typeof AuthenticatedAgendaRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/historial': typeof AuthenticatedHistorialRoute
-  '/_authenticated/lavadores': typeof AuthenticatedLavadoresRoute
+  '/_authenticated/recursos': typeof AuthenticatedRecursosRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -86,9 +86,9 @@ export interface FileRouteTypes {
     | '/agenda'
     | '/dashboard'
     | '/historial'
-    | '/lavadores'
+    | '/recursos'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/agenda' | '/dashboard' | '/historial' | '/lavadores'
+  to: '/' | '/auth' | '/agenda' | '/dashboard' | '/historial' | '/recursos'
   id:
     | '__root__'
     | '/'
@@ -97,7 +97,7 @@ export interface FileRouteTypes {
     | '/_authenticated/agenda'
     | '/_authenticated/dashboard'
     | '/_authenticated/historial'
-    | '/_authenticated/lavadores'
+    | '/_authenticated/recursos'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -129,11 +129,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/lavadores': {
-      id: '/_authenticated/lavadores'
-      path: '/lavadores'
-      fullPath: '/lavadores'
-      preLoaderRoute: typeof AuthenticatedLavadoresRouteImport
+    '/_authenticated/recursos': {
+      id: '/_authenticated/recursos'
+      path: '/recursos'
+      fullPath: '/recursos'
+      preLoaderRoute: typeof AuthenticatedRecursosRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/historial': {
@@ -164,14 +164,14 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAgendaRoute: typeof AuthenticatedAgendaRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedHistorialRoute: typeof AuthenticatedHistorialRoute
-  AuthenticatedLavadoresRoute: typeof AuthenticatedLavadoresRoute
+  AuthenticatedRecursosRoute: typeof AuthenticatedRecursosRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAgendaRoute: AuthenticatedAgendaRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedHistorialRoute: AuthenticatedHistorialRoute,
-  AuthenticatedLavadoresRoute: AuthenticatedLavadoresRoute,
+  AuthenticatedRecursosRoute: AuthenticatedRecursosRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =
@@ -185,13 +185,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

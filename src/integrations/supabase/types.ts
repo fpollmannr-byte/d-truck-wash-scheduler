@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      booking_lanes: {
+        Row: {
+          booking_id: string
+          lane_id: string
+        }
+        Insert: {
+          booking_id: string
+          lane_id: string
+        }
+        Update: {
+          booking_id?: string
+          lane_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "booking_lanes_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "booking_lanes_lane_id_fkey"
+            columns: ["lane_id"]
+            isOneToOne: false
+            referencedRelation: "lanes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       bookings: {
         Row: {
           client: string | null
@@ -26,9 +56,9 @@ export type Database = {
           start_at: string
           status: Database["public"]["Enums"]["wash_status"]
           supervisor_approved: boolean
+          team_id: string
           updated_at: string
           wash_type: Database["public"]["Enums"]["wash_type"]
-          washer_id: string
         }
         Insert: {
           client?: string | null
@@ -41,9 +71,9 @@ export type Database = {
           start_at: string
           status?: Database["public"]["Enums"]["wash_status"]
           supervisor_approved?: boolean
+          team_id: string
           updated_at?: string
           wash_type: Database["public"]["Enums"]["wash_type"]
-          washer_id: string
         }
         Update: {
           client?: string | null
@@ -56,19 +86,97 @@ export type Database = {
           start_at?: string
           status?: Database["public"]["Enums"]["wash_status"]
           supervisor_approved?: boolean
+          team_id?: string
           updated_at?: string
           wash_type?: Database["public"]["Enums"]["wash_type"]
-          washer_id?: string
         }
         Relationships: [
           {
-            foreignKeyName: "bookings_washer_id_fkey"
-            columns: ["washer_id"]
+            foreignKeyName: "bookings_team_id_fkey"
+            columns: ["team_id"]
             isOneToOne: false
-            referencedRelation: "washers"
+            referencedRelation: "teams"
             referencedColumns: ["id"]
           },
         ]
+      }
+      lanes: {
+        Row: {
+          active: boolean
+          created_at: string
+          id: string
+          name: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
+      shifts: {
+        Row: {
+          active: boolean
+          break_end: string | null
+          break_start: string | null
+          created_at: string
+          end_time: string
+          headcount: number
+          id: string
+          name: string
+          start_time: string
+        }
+        Insert: {
+          active?: boolean
+          break_end?: string | null
+          break_start?: string | null
+          created_at?: string
+          end_time: string
+          headcount?: number
+          id?: string
+          name: string
+          start_time: string
+        }
+        Update: {
+          active?: boolean
+          break_end?: string | null
+          break_start?: string | null
+          created_at?: string
+          end_time?: string
+          headcount?: number
+          id?: string
+          name?: string
+          start_time?: string
+        }
+        Relationships: []
+      }
+      teams: {
+        Row: {
+          active: boolean
+          created_at: string
+          id: string
+          name: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name?: string
+        }
+        Relationships: []
       }
       user_roles: {
         Row: {
@@ -91,32 +199,18 @@ export type Database = {
         }
         Relationships: []
       }
-      washers: {
-        Row: {
-          active: boolean
-          created_at: string
-          id: string
-          name: string
-        }
-        Insert: {
-          active?: boolean
-          created_at?: string
-          id?: string
-          name: string
-        }
-        Update: {
-          active?: boolean
-          created_at?: string
-          id?: string
-          name?: string
-        }
-        Relationships: []
-      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      has_any_role: {
+        Args: {
+          _roles: Database["public"]["Enums"]["app_role"][]
+          _user_id: string
+        }
+        Returns: boolean
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -126,8 +220,18 @@ export type Database = {
       }
     }
     Enums: {
-      app_role: "admin" | "operador"
-      wash_status: "programado" | "en_proceso" | "completado" | "cancelado"
+      app_role: "admin" | "operador" | "jefe" | "lider"
+      wash_status:
+        | "programado"
+        | "en_proceso"
+        | "completado"
+        | "cancelado"
+        | "en_espera"
+        | "en_lavado_interior"
+        | "en_lavado_exterior"
+        | "control_calidad"
+        | "finalizado"
+        | "entregado"
       wash_type:
         | "exterior"
         | "interior_3"
@@ -261,8 +365,19 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["admin", "operador"],
-      wash_status: ["programado", "en_proceso", "completado", "cancelado"],
+      app_role: ["admin", "operador", "jefe", "lider"],
+      wash_status: [
+        "programado",
+        "en_proceso",
+        "completado",
+        "cancelado",
+        "en_espera",
+        "en_lavado_interior",
+        "en_lavado_exterior",
+        "control_calidad",
+        "finalizado",
+        "entregado",
+      ],
       wash_type: [
         "exterior",
         "interior_3",
