@@ -9,29 +9,28 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { WASH_TYPES, STATUS_META, computeEndAt, formatDuration, validateSchedule, type WashType, type WashStatus } from "@/lib/wash-types";
 import { Checkbox } from "@/components/ui/checkbox";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { Trash2 } from "lucide-react";
 
 export type BookingDraft = {
   id?: string;
-  washer_id: string;
+  team_id: string;
   wash_type: WashType;
   plate: string;
   client: string;
   observations: string;
-  start_at: string; // ISO local "YYYY-MM-DDTHH:mm"
+  start_at: string;
   status: WashStatus;
   supervisor_approved: boolean;
 };
 
-export function emptyDraft(washerId = "", startISO?: string): BookingDraft {
+export function emptyDraft(teamId = "", startISO?: string): BookingDraft {
   const d = startISO ? new Date(startISO) : new Date();
   d.setSeconds(0, 0);
   if (!startISO) d.setMinutes(0);
   return {
-    washer_id: washerId,
+    team_id: teamId,
     wash_type: "exterior",
     plate: "",
     client: "",
@@ -40,6 +39,10 @@ export function emptyDraft(washerId = "", startISO?: string): BookingDraft {
     status: "programado",
     supervisor_approved: false,
   };
+}
+
+function rangesOverlap(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
+  return aStart < bEnd && bStart < aEnd;
 }
 
 export function BookingModal({
@@ -56,10 +59,19 @@ export function BookingModal({
 
   useEffect(() => { setD(draft); }, [draft]);
 
-  const { data: washers } = useQuery({
-    queryKey: ["washers"],
+  const { data: teams = [] } = useQuery({
+    queryKey: ["teams"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("washers").select("*").eq("active", true).order("name");
+      const { data, error } = await supabase.from("teams").select("*").eq("active", true).order("name");
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const { data: lanes = [] } = useQuery({
+    queryKey: ["lanes"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("lanes").select("*").eq("active", true).order("name");
       if (error) throw error;
       return data;
     },
@@ -73,35 +85,91 @@ export function BookingModal({
     ? validateSchedule(start_iso_preview, end_iso_preview, d.supervisor_approved)
     : null;
 
+  async function findFreeLanes(startISO: string, endISO: string, excludeBookingId?: string): Promise<string[] | null> {
+    const needed = WASH_TYPES[d!.wash_type].lanes;
+    const start = new Date(startISO);
+    const end = new Date(endISO);
+
+    // Fetch active bookings that could overlap with their lanes
+    const { data: candidates, error } = await supabase
+      .from("bookings")
+      .select("id, start_at, end_at, status, booking_lanes(lane_id)")
+      .neq("status", "cancelado")
+      .lt("start_at", endISO)
+      .gt("end_at", startISO);
+    if (error) throw error;
+
+    const busy = new Set<string>();
+    (candidates ?? []).forEach((b) => {
+      if (excludeBookingId && b.id === excludeBookingId) return;
+      if (rangesOverlap(start, end, new Date(b.start_at), new Date(b.end_at))) {
+        (b.booking_lanes ?? []).forEach((bl: { lane_id: string }) => busy.add(bl.lane_id));
+      }
+    });
+
+    const free = lanes.filter((l) => !busy.has(l.id)).slice(0, needed);
+    if (free.length < needed) return null;
+    return free.map((l) => l.id);
+  }
+
   async function save() {
     if (!d) return;
-    if (!d.washer_id) return toast.error("Selecciona un lavador");
+    if (!d.team_id) return toast.error("Selecciona un equipo");
     if (!d.plate.trim()) return toast.error("Ingresa la patente");
     const start_iso = new Date(d.start_at).toISOString();
     const end_iso = computeEndAt(start_iso, d.wash_type);
     const check = validateSchedule(start_iso, end_iso, d.supervisor_approved);
     if (!check.ok) return toast.error(check.reason);
+
     setSaving(true);
-    const payload = {
-      washer_id: d.washer_id,
-      wash_type: d.wash_type,
-      plate: d.plate.trim().toUpperCase(),
-      client: d.client.trim() || null,
-      observations: d.observations.trim() || null,
-      start_at: start_iso,
-      end_at: end_iso,
-      status: d.status,
-      supervisor_approved: d.supervisor_approved,
-    };
-    const res = d.id
-      ? await supabase.from("bookings").update(payload).eq("id", d.id)
-      : await supabase.from("bookings").insert(payload);
-    setSaving(false);
-    if (res.error) return toast.error(res.error.message);
-    toast.success(d.id ? "Lavado actualizado" : "Lavado creado");
-    qc.invalidateQueries({ queryKey: ["bookings"] });
-    onSaved?.();
-    onOpenChange(false);
+    try {
+      const needed = WASH_TYPES[d.wash_type].lanes;
+      const freeLaneIds = await findFreeLanes(start_iso, end_iso, d.id);
+      if (!freeLaneIds) {
+        setSaving(false);
+        return toast.error(`No hay ${needed} pista(s) disponible(s) en ese horario`);
+      }
+
+      const payload = {
+        team_id: d.team_id,
+        wash_type: d.wash_type,
+        plate: d.plate.trim().toUpperCase(),
+        client: d.client.trim() || null,
+        observations: d.observations.trim() || null,
+        start_at: start_iso,
+        end_at: end_iso,
+        status: d.status,
+        supervisor_approved: d.supervisor_approved,
+      };
+
+      let bookingId = d.id;
+      if (bookingId) {
+        const { error } = await supabase.from("bookings").update(payload).eq("id", bookingId);
+        if (error) throw error;
+        await supabase.from("booking_lanes").delete().eq("booking_id", bookingId);
+      } else {
+        const { data: inserted, error } = await supabase.from("bookings").insert(payload).select("id").single();
+        if (error) throw error;
+        bookingId = inserted.id;
+      }
+
+      const laneRows = freeLaneIds.map((lane_id) => ({ booking_id: bookingId!, lane_id }));
+      const { error: laneErr } = await supabase.from("booking_lanes").insert(laneRows);
+      if (laneErr) {
+        if (!d.id) await supabase.from("bookings").delete().eq("id", bookingId!);
+        throw laneErr;
+      }
+
+      toast.success(d.id ? "Lavado actualizado" : "Lavado creado");
+      qc.invalidateQueries({ queryKey: ["bookings"] });
+      onSaved?.();
+      onOpenChange(false);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Error al guardar";
+      toast.error(msg);
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function remove() {
@@ -115,6 +183,7 @@ export function BookingModal({
   }
 
   const duration = WASH_TYPES[d.wash_type].minutes;
+  const lanesNeeded = WASH_TYPES[d.wash_type].lanes;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -135,15 +204,19 @@ export function BookingModal({
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">Duración total: <span className="text-primary font-medium">{formatDuration(duration)}</span></p>
+              <p className="text-xs text-muted-foreground">
+                Duración: <span className="text-primary font-medium">{formatDuration(duration)}</span>
+                {" · "}Pistas requeridas: <span className="text-primary font-medium">{lanesNeeded}</span>
+                {" · "}Asignación automática
+              </p>
             </div>
 
             <div className="space-y-1.5">
-              <Label>Lavador</Label>
-              <Select value={d.washer_id} onValueChange={(v) => setD({ ...d, washer_id: v })}>
+              <Label>Equipo</Label>
+              <Select value={d.team_id} onValueChange={(v) => setD({ ...d, team_id: v })}>
                 <SelectTrigger><SelectValue placeholder="Selecciona" /></SelectTrigger>
                 <SelectContent>
-                  {washers?.map((w) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}
+                  {teams.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -174,7 +247,7 @@ export function BookingModal({
               <Label>Fecha y hora de inicio</Label>
               <Input type="datetime-local" value={d.start_at} onChange={(e) => setD({ ...d, start_at: e.target.value })} />
               <p className="text-xs text-muted-foreground">
-                Horario: Lun–Vie 08:00–20:00 · Sábado 08:00–13:00 (con aprobación) · Domingo cerrado.
+                Lun–Vie 08:00–20:00 · Sábado 08:00–13:00 (con aprobación) · Domingo cerrado.
               </p>
             </div>
 
