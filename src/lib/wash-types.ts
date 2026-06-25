@@ -1,4 +1,11 @@
-export type WashType = "exterior" | "interior_3" | "interior_4" | "interior_5" | "interior_6";
+export type WashType =
+  | "exterior"
+  | "interior_3"
+  | "interior_4"
+  | "interior_5"
+  | "interior_6"
+  | "hermeticidad";
+
 export type WashStatus =
   | "programado"
   | "en_espera"
@@ -11,15 +18,23 @@ export type WashStatus =
   | "entregado"
   | "cancelado";
 
-export const WASH_TYPES: Record<WashType, { label: string; minutes: number; short: string; lanes: number }> = {
-  exterior:   { label: "Lavado Exterior",             short: "EXT",  minutes: 40,        lanes: 1 },
-  interior_3: { label: "Interior 3 Comp. + Exterior", short: "INT3", minutes: 180 + 45,  lanes: 2 },
-  interior_4: { label: "Interior 4 Comp. + Exterior", short: "INT4", minutes: 240 + 45,  lanes: 2 },
-  interior_5: { label: "Interior 5 Comp. + Exterior", short: "INT5", minutes: 300 + 45,  lanes: 2 },
-  interior_6: { label: "Interior 6 Comp. + Exterior", short: "INT6", minutes: 300 + 45,  lanes: 2 },
+// Cada lavado requiere 3 operadores del pool de 7. Una bahía se ocupa por lavado.
+export const OPERATORS_PER_WASH = 3;
+export const OPERATORS_POOL = 7;
+export const BAYS_TOTAL = 4;
+
+export const WASH_TYPES: Record<
+  WashType,
+  { label: string; minutes: number; short: string; operators: number }
+> = {
+  exterior:     { label: "Lavado Exterior",             short: "EXT",  minutes: 40,        operators: OPERATORS_PER_WASH },
+  interior_3:   { label: "Interior 3 Comp. + Exterior", short: "INT3", minutes: 180 + 45,  operators: OPERATORS_PER_WASH },
+  interior_4:   { label: "Interior 4 Comp. + Exterior", short: "INT4", minutes: 240 + 45,  operators: OPERATORS_PER_WASH },
+  interior_5:   { label: "Interior 5 Comp. + Exterior", short: "INT5", minutes: 300 + 45,  operators: OPERATORS_PER_WASH },
+  interior_6:   { label: "Interior 6 Comp. + Exterior", short: "INT6", minutes: 300 + 45,  operators: OPERATORS_PER_WASH },
+  hermeticidad: { label: "Hermeticidad",                short: "HER",  minutes: 60,        operators: OPERATORS_PER_WASH },
 };
 
-// Estados — colores: azul=programado, ámbar=en proceso, verde=cierre, gris=cancelado
 export const STATUS_META: Record<WashStatus, { label: string; color: string; bg: string }> = {
   programado:         { label: "Programado",        color: "var(--status-scheduled)", bg: "color-mix(in oklch, var(--status-scheduled) 25%, var(--surface))" },
   en_espera:          { label: "En Espera",         color: "var(--status-scheduled)", bg: "color-mix(in oklch, var(--status-scheduled) 18%, var(--surface))" },
@@ -50,10 +65,6 @@ export function formatDuration(minutes: number): string {
   return `${h}h ${m}m`;
 }
 
-// Horarios permitidos:
-// - Lun-Vie: 08:00 a 20:00. Después de 20:00 requiere aprobación de jefatura.
-// - Sábado: 08:00 a 13:00 con aprobación de jefatura.
-// - Domingo: cerrado.
 export function validateSchedule(
   startISO: string,
   endISO: string,

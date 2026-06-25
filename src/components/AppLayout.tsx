@@ -64,7 +64,15 @@ export function AppLayout({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
-        <div className="p-3 border-t border-sidebar-border">
+        <div className="p-3 border-t border-sidebar-border space-y-1">
+          <a
+            href="/reservar"
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-3 px-3 py-2 rounded-md text-xs font-medium text-muted-foreground hover:bg-sidebar-accent"
+          >
+            <Calendar className="w-4 h-4" /> Vista pública
+          </a>
           <Button variant="ghost" size="sm" className="w-full justify-start" onClick={logout}>
             <LogOut className="w-4 h-4" /> Cerrar sesión
           </Button>

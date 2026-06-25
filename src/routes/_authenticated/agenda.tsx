@@ -18,7 +18,7 @@ export const Route = createFileRoute("/_authenticated/agenda")({
 type View = "dia" | "semana" | "mes";
 type Booking = {
   id: string;
-  team_id: string;
+  bay_id: string;
   wash_type: WashType;
   plate: string;
   client: string | null;
@@ -27,8 +27,9 @@ type Booking = {
   end_at: string;
   status: WashStatus;
   supervisor_approved: boolean;
-  booking_lanes: { lane_id: string }[];
+  operators_needed: number;
 };
+type Bay = { id: string; name: string };
 
 const START_HOUR = 7;
 const END_HOUR = 22;
@@ -49,12 +50,12 @@ function AgendaPage() {
     return { from: startOfMonth(date), to: endOfMonth(date) };
   }, [date, view]);
 
-  const { data: teams = [] } = useQuery({
-    queryKey: ["teams"],
+  const { data: bays = [] } = useQuery<Bay[]>({
+    queryKey: ["bays"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("teams").select("*").eq("active", true).order("name");
+      const { data, error } = await supabase.from("bays").select("id, name, active").eq("active", true).order("name");
       if (error) throw error;
-      return data;
+      return (data ?? []).map((b) => ({ id: b.id, name: b.name }));
     },
   });
 
@@ -63,7 +64,7 @@ function AgendaPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("bookings")
-        .select("id, team_id, wash_type, plate, client, observations, start_at, end_at, status, supervisor_approved, booking_lanes(lane_id)")
+        .select("id, bay_id, wash_type, plate, client, observations, start_at, end_at, status, supervisor_approved, operators_needed")
         .gte("start_at", range.from.toISOString())
         .lte("start_at", range.to.toISOString())
         .order("start_at");
@@ -78,15 +79,15 @@ function AgendaPage() {
     else setDate(dir === 1 ? addMonths(date, 1) : subMonths(date, 1));
   }
 
-  function openNew(teamId?: string, startISO?: string) {
-    setDraft(emptyDraft(teamId ?? teams[0]?.id ?? "", startISO));
+  function openNew(bayId?: string, startISO?: string) {
+    setDraft(emptyDraft(bayId ?? bays[0]?.id ?? "", startISO));
     setModalOpen(true);
   }
 
   function openEdit(b: Booking) {
     setDraft({
       id: b.id,
-      team_id: b.team_id,
+      bay_id: b.bay_id,
       wash_type: b.wash_type,
       plate: b.plate,
       client: b.client ?? "",
@@ -130,8 +131,8 @@ function AgendaPage() {
         </div>
       </div>
 
-      {view === "dia"    && <DayView   date={date} teams={teams} bookings={bookings} onNew={openNew} onEdit={openEdit} />}
-      {view === "semana" && <WeekView  from={range.from} teams={teams} bookings={bookings} onEdit={openEdit} />}
+      {view === "dia"    && <DayView   date={date} bays={bays} bookings={bookings} onNew={openNew} onEdit={openEdit} />}
+      {view === "semana" && <WeekView  from={range.from} bays={bays} bookings={bookings} onEdit={openEdit} />}
       {view === "mes"    && <MonthView date={date} bookings={bookings} onPickDay={(d) => { setDate(d); setView("dia"); }} />}
 
       <BookingModal open={modalOpen} onOpenChange={setModalOpen} draft={draft} />
@@ -140,12 +141,12 @@ function AgendaPage() {
 }
 
 function DayView({
-  date, teams, bookings, onNew, onEdit,
+  date, bays, bookings, onNew, onEdit,
 }: {
   date: Date;
-  teams: { id: string; name: string }[];
+  bays: Bay[];
   bookings: Booking[];
-  onNew: (teamId?: string, startISO?: string) => void;
+  onNew: (bayId?: string, startISO?: string) => void;
   onEdit: (b: Booking) => void;
 }) {
   const hours = Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, i) => START_HOUR + i);
@@ -155,7 +156,7 @@ function DayView({
     <div className="erp-panel overflow-x-auto">
       <div className="min-w-[800px]">
         <div className="grid border-b border-border" style={{ gridTemplateColumns: `140px repeat(${hours.length}, ${HOUR_PX}px)` }}>
-          <div className="px-3 py-2 text-[10px] uppercase tracking-widest text-muted-foreground border-r border-border bg-surface-2">Equipo</div>
+          <div className="px-3 py-2 text-[10px] uppercase tracking-widest text-muted-foreground border-r border-border bg-surface-2">Bahía</div>
           {hours.map((h) => (
             <div key={h} className="px-1 py-2 text-xs font-mono text-muted-foreground border-r border-border bg-surface-2 text-center">
               {String(h).padStart(2, "0")}:00
@@ -163,11 +164,11 @@ function DayView({
           ))}
         </div>
 
-        {teams.length === 0 && (
-          <div className="p-6 text-sm text-muted-foreground">No hay equipos activos.</div>
+        {bays.length === 0 && (
+          <div className="p-6 text-sm text-muted-foreground">No hay bahías activas.</div>
         )}
-        {teams.map((t) => {
-          const wb = bookings.filter((b) => b.team_id === t.id);
+        {bays.map((t) => {
+          const wb = bookings.filter((b) => b.bay_id === t.id);
           return (
             <div key={t.id} className="grid border-b border-border" style={{ gridTemplateColumns: `140px 1fr` }}>
               <div className="px-3 py-3 text-sm font-semibold border-r border-border bg-surface-2 flex items-center">
@@ -216,10 +217,10 @@ function DayView({
 }
 
 function WeekView({
-  from, teams, bookings, onEdit,
+  from, bays, bookings, onEdit,
 }: {
   from: Date;
-  teams: { id: string; name: string }[];
+  bays: Bay[];
   bookings: Booking[];
   onEdit: (b: Booking) => void;
 }) {
@@ -227,18 +228,18 @@ function WeekView({
   return (
     <div className="erp-panel overflow-x-auto">
       <div className="min-w-[800px] grid" style={{ gridTemplateColumns: `140px repeat(7, 1fr)` }}>
-        <div className="px-3 py-2 text-[10px] uppercase tracking-widest text-muted-foreground border-r border-b border-border bg-surface-2">Equipo</div>
+        <div className="px-3 py-2 text-[10px] uppercase tracking-widest text-muted-foreground border-r border-b border-border bg-surface-2">Bahía</div>
         {days.map((d) => (
           <div key={d.toISOString()} className="px-2 py-2 text-xs font-medium border-r border-b border-border bg-surface-2 text-center">
             <div className="uppercase text-muted-foreground">{format(d, "EEE", { locale: es })}</div>
             <div className="font-mono">{format(d, "d/MM")}</div>
           </div>
         ))}
-        {teams.map((t) => (
+        {bays.map((t) => (
           <div key={t.id} className="contents">
             <div className="px-3 py-2 text-sm border-r border-b border-border bg-surface-2 font-semibold">{t.name}</div>
             {days.map((d) => {
-              const list = bookings.filter((b) => b.team_id === t.id && isSameDay(new Date(b.start_at), d));
+              const list = bookings.filter((b) => b.bay_id === t.id && isSameDay(new Date(b.start_at), d));
               return (
                 <div key={t.id + d.toISOString()} className="border-r border-b border-border p-1 space-y-1 min-h-20">
                   {list.map((b) => {
