@@ -14,88 +14,94 @@ export type Database = {
   }
   public: {
     Tables: {
-      booking_lanes: {
+      bays: {
         Row: {
-          booking_id: string
-          lane_id: string
+          active: boolean
+          created_at: string
+          id: string
+          name: string
         }
         Insert: {
-          booking_id: string
-          lane_id: string
+          active?: boolean
+          created_at?: string
+          id?: string
+          name: string
         }
         Update: {
-          booking_id?: string
-          lane_id?: string
+          active?: boolean
+          created_at?: string
+          id?: string
+          name?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "booking_lanes_booking_id_fkey"
-            columns: ["booking_id"]
-            isOneToOne: false
-            referencedRelation: "bookings"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "booking_lanes_lane_id_fkey"
-            columns: ["lane_id"]
-            isOneToOne: false
-            referencedRelation: "lanes"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       bookings: {
         Row: {
+          approval_status: string
+          bay_id: string
           client: string | null
+          contact_name: string | null
+          contact_phone: string | null
           created_at: string
           created_by: string | null
           end_at: string
           id: string
+          is_public_request: boolean
           observations: string | null
+          operators_needed: number
           plate: string
           start_at: string
           status: Database["public"]["Enums"]["wash_status"]
           supervisor_approved: boolean
-          team_id: string
           updated_at: string
           wash_type: Database["public"]["Enums"]["wash_type"]
         }
         Insert: {
+          approval_status?: string
+          bay_id: string
           client?: string | null
+          contact_name?: string | null
+          contact_phone?: string | null
           created_at?: string
           created_by?: string | null
           end_at: string
           id?: string
+          is_public_request?: boolean
           observations?: string | null
+          operators_needed?: number
           plate: string
           start_at: string
           status?: Database["public"]["Enums"]["wash_status"]
           supervisor_approved?: boolean
-          team_id: string
           updated_at?: string
           wash_type: Database["public"]["Enums"]["wash_type"]
         }
         Update: {
+          approval_status?: string
+          bay_id?: string
           client?: string | null
+          contact_name?: string | null
+          contact_phone?: string | null
           created_at?: string
           created_by?: string | null
           end_at?: string
           id?: string
+          is_public_request?: boolean
           observations?: string | null
+          operators_needed?: number
           plate?: string
           start_at?: string
           status?: Database["public"]["Enums"]["wash_status"]
           supervisor_approved?: boolean
-          team_id?: string
           updated_at?: string
           wash_type?: Database["public"]["Enums"]["wash_type"]
         }
         Relationships: [
           {
-            foreignKeyName: "bookings_team_id_fkey"
-            columns: ["team_id"]
+            foreignKeyName: "bookings_bay_id_fkey"
+            columns: ["bay_id"]
             isOneToOne: false
-            referencedRelation: "teams"
+            referencedRelation: "bays"
             referencedColumns: ["id"]
           },
         ]
@@ -117,6 +123,30 @@ export type Database = {
           active?: boolean
           created_at?: string
           id?: string
+          name?: string
+        }
+        Relationships: []
+      }
+      operators: {
+        Row: {
+          active: boolean
+          created_at: string
+          id: string
+          is_supervisor: boolean
+          name: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          is_supervisor?: boolean
+          name: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          is_supervisor?: boolean
           name?: string
         }
         Relationships: []
@@ -157,27 +187,6 @@ export type Database = {
         }
         Relationships: []
       }
-      teams: {
-        Row: {
-          active: boolean
-          created_at: string
-          id: string
-          name: string
-        }
-        Insert: {
-          active?: boolean
-          created_at?: string
-          id?: string
-          name: string
-        }
-        Update: {
-          active?: boolean
-          created_at?: string
-          id?: string
-          name?: string
-        }
-        Relationships: []
-      }
       user_roles: {
         Row: {
           created_at: string
@@ -204,6 +213,30 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      create_public_booking: {
+        Args: {
+          p_bay_id: string
+          p_contact_name: string
+          p_contact_phone: string
+          p_end_at: string
+          p_observations?: string
+          p_plate: string
+          p_start_at: string
+          p_wash_type: Database["public"]["Enums"]["wash_type"]
+        }
+        Returns: string
+      }
+      get_public_schedule: {
+        Args: { date_from: string; date_to: string }
+        Returns: {
+          bay_id: string
+          bay_name: string
+          end_at: string
+          id: string
+          start_at: string
+          status: Database["public"]["Enums"]["wash_status"]
+        }[]
+      }
       has_any_role: {
         Args: {
           _roles: Database["public"]["Enums"]["app_role"][]
@@ -238,6 +271,7 @@ export type Database = {
         | "interior_4"
         | "interior_5"
         | "interior_6"
+        | "hermeticidad"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -384,6 +418,7 @@ export const Constants = {
         "interior_4",
         "interior_5",
         "interior_6",
+        "hermeticidad",
       ],
     },
   },
