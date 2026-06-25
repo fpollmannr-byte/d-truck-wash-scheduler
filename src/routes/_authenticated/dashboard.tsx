@@ -3,8 +3,11 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { startOfDay, endOfDay, startOfWeek, addDays, format } from "date-fns";
 import { es } from "date-fns/locale";
-import { STATUS_META, ACTIVE_STATUSES, CLOSED_STATUSES, type WashStatus } from "@/lib/wash-types";
-import { Calendar, Clock, CheckCircle2, AlertCircle, Activity } from "lucide-react";
+import {
+  STATUS_META, ACTIVE_STATUSES, CLOSED_STATUSES,
+  OPERATORS_POOL, BAYS_TOTAL, type WashStatus,
+} from "@/lib/wash-types";
+import { Calendar, Clock, CheckCircle2, AlertCircle, Activity, Users, Layers } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid } from "recharts";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -21,20 +24,15 @@ function DashboardPage() {
   const weekFrom = startOfWeek(today, { weekStartsOn: 1 });
   const weekTo = endOfDay(addDays(weekFrom, 6));
 
-  const { data: teams = [] } = useQuery({
-    queryKey: ["teams"],
-    queryFn: async () => (await supabase.from("teams").select("*").eq("active", true).order("name")).data ?? [],
-  });
-
-  const { data: lanes = [] } = useQuery({
-    queryKey: ["lanes"],
-    queryFn: async () => (await supabase.from("lanes").select("*").eq("active", true).order("name")).data ?? [],
+  const { data: bays = [] } = useQuery({
+    queryKey: ["bays"],
+    queryFn: async () => (await supabase.from("bays").select("id, name, active").eq("active", true).order("name")).data ?? [],
   });
 
   const { data: today_bookings = [] } = useQuery({
     queryKey: ["bookings-today"],
     queryFn: async () => (await supabase.from("bookings")
-      .select("id, team_id, status, start_at, end_at, booking_lanes(lane_id)")
+      .select("id, bay_id, status, start_at, end_at, operators_needed")
       .gte("start_at", dayFrom.toISOString()).lte("start_at", dayTo.toISOString())).data ?? [],
   });
 
@@ -45,27 +43,26 @@ function DashboardPage() {
       .gte("start_at", weekFrom.toISOString()).lte("start_at", weekTo.toISOString())).data ?? [],
   });
 
-  const usedByTeam = teams.map((t) => {
+  const usedByBay = bays.map((t) => {
     const used = today_bookings
-      .filter((b) => b.team_id === t.id && b.status !== "cancelado")
+      .filter((b) => b.bay_id === t.id && b.status !== "cancelado")
       .reduce((acc, b) => acc + (new Date(b.end_at).getTime() - new Date(b.start_at).getTime()) / 60000, 0);
     return { ...t, used, pct: Math.min(100, Math.round((used / SHIFT_MINUTES) * 100)), available: Math.max(0, SHIFT_MINUTES - used) };
   });
 
-  const totalUsed = usedByTeam.reduce((a, t) => a + t.used, 0);
-  const totalCapacity = teams.length * SHIFT_MINUTES || 1;
-  const personnelPct = Math.round((totalUsed / totalCapacity) * 100);
+  const totalUsed = usedByBay.reduce((a, t) => a + t.used, 0);
+  const baysCapacity = (bays.length || BAYS_TOTAL) * SHIFT_MINUTES;
+  const baysPct = Math.round((totalUsed / baysCapacity) * 100);
 
-  // Utilización de pistas: minutos ocupados sumados / (pistas activas * jornada)
-  const laneMinutes = today_bookings
+  // Utilización de personal: operadores·minuto / (pool * jornada)
+  const opMinutes = today_bookings
     .filter((b) => b.status !== "cancelado")
     .reduce((acc, b) => {
       const m = (new Date(b.end_at).getTime() - new Date(b.start_at).getTime()) / 60000;
-      const n = (b.booking_lanes ?? []).length;
-      return acc + m * n;
+      return acc + m * (b.operators_needed ?? 3);
     }, 0);
-  const laneCapacity = (lanes.length || 1) * SHIFT_MINUTES;
-  const lanesPct = Math.min(100, Math.round((laneMinutes / laneCapacity) * 100));
+  const personnelCapacity = OPERATORS_POOL * SHIFT_MINUTES;
+  const personnelPct = Math.min(100, Math.round((opMinutes / personnelCapacity) * 100));
 
   const counts: Record<WashStatus, number> = {
     programado: 0, en_espera: 0, en_proceso: 0,
@@ -76,7 +73,6 @@ function DashboardPage() {
   const activeCount = ACTIVE_STATUSES.reduce((a, s) => a + counts[s], 0);
   const closedCount = CLOSED_STATUSES.filter((s) => s !== "cancelado").reduce((a, s) => a + counts[s], 0);
 
-  // Atrasados: fin pasado y aún activo
   const now = Date.now();
   const overdue = today_bookings.filter((b) =>
     ACTIVE_STATUSES.includes(b.status as WashStatus) && new Date(b.end_at).getTime() < now
@@ -100,7 +96,7 @@ function DashboardPage() {
         <Kpi icon={<Calendar className="w-4 h-4" />} label="Lavados hoy" value={today_bookings.length.toString()} accent="var(--accent)" />
         <Kpi icon={<Activity className="w-4 h-4" />} label="En proceso" value={activeCount.toString()} accent="var(--status-progress)" />
         <Kpi icon={<CheckCircle2 className="w-4 h-4" />} label="Finalizados" value={closedCount.toString()} accent="var(--status-done)" />
-        <Kpi icon={<Clock className="w-4 h-4" />} label="Util. personal" value={`${personnelPct}%`} accent="var(--primary)" />
+        <Kpi icon={<Users className="w-4 h-4" />} label="Util. personal" value={`${personnelPct}%`} accent="var(--primary)" />
         <Kpi icon={<AlertCircle className="w-4 h-4" />} label="Atrasados" value={overdue.toString()} accent="var(--destructive)" />
       </div>
 
@@ -118,10 +114,12 @@ function DashboardPage() {
 
       <div className="grid md:grid-cols-2 gap-6">
         <div className="erp-panel p-4">
-          <h2 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground mb-4">Utilización por equipo · Hoy</h2>
+          <h2 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground mb-4">
+            <Layers className="w-4 h-4 inline mr-1.5" />Utilización por bahía · Hoy
+          </h2>
           <div className="space-y-4">
-            {usedByTeam.length === 0 && <p className="text-sm text-muted-foreground">Sin equipos activos.</p>}
-            {usedByTeam.map((t) => (
+            {usedByBay.length === 0 && <p className="text-sm text-muted-foreground">Sin bahías activas.</p>}
+            {usedByBay.map((t) => (
               <div key={t.id}>
                 <div className="flex justify-between text-xs mb-1">
                   <span className="font-medium">{t.name}</span>
@@ -136,20 +134,33 @@ function DashboardPage() {
               </div>
             ))}
 
-            <div className="pt-3 mt-3 border-t border-border">
-              <div className="flex justify-between text-xs mb-1">
-                <span className="font-medium">Pistas (4 totales)</span>
-                <span className="font-mono text-accent">{lanesPct}%</span>
+            <div className="pt-3 mt-3 border-t border-border space-y-3">
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="font-medium">Bahías ({bays.length || BAYS_TOTAL} totales)</span>
+                  <span className="font-mono text-accent">{baysPct}%</span>
+                </div>
+                <div className="h-2 rounded-full bg-muted overflow-hidden">
+                  <div className="h-full rounded-full" style={{ width: `${baysPct}%`, background: "var(--accent)" }} />
+                </div>
               </div>
-              <div className="h-2 rounded-full bg-muted overflow-hidden">
-                <div className="h-full rounded-full" style={{ width: `${lanesPct}%`, background: "var(--accent)" }} />
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="font-medium">Personal ({OPERATORS_POOL} operadores)</span>
+                  <span className="font-mono text-primary">{personnelPct}%</span>
+                </div>
+                <div className="h-2 rounded-full bg-muted overflow-hidden">
+                  <div className="h-full rounded-full" style={{ width: `${personnelPct}%`, background: "var(--primary)" }} />
+                </div>
               </div>
             </div>
           </div>
         </div>
 
         <div className="erp-panel p-4">
-          <h2 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground mb-4">Lavados por día · Esta semana</h2>
+          <h2 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground mb-4">
+            <Clock className="w-4 h-4 inline mr-1.5" />Lavados por día · Esta semana
+          </h2>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={weekChart}>

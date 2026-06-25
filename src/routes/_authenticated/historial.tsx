@@ -18,7 +18,7 @@ export const Route = createFileRoute("/_authenticated/historial")({
 
 type Row = {
   id: string;
-  team_id: string;
+  bay_id: string;
   start_at: string;
   end_at: string;
   wash_type: WashType;
@@ -26,35 +26,35 @@ type Row = {
   client: string | null;
   observations: string | null;
   status: WashStatus;
-  teams: { name: string } | null;
+  bays: { name: string } | null;
 };
 
 function HistorialPage() {
   const [from, setFrom] = useState(format(subDays(new Date(), 30), "yyyy-MM-dd"));
   const [to, setTo] = useState(format(new Date(), "yyyy-MM-dd"));
-  const [teamId, setTeamId] = useState<string>("all");
+  const [bayId, setBayId] = useState<string>("all");
   const [status, setStatus] = useState<string>("all");
   const [search, setSearch] = useState("");
 
-  const { data: teams = [] } = useQuery({
-    queryKey: ["teams-all"],
-    queryFn: async () => (await supabase.from("teams").select("*").order("name")).data ?? [],
+  const { data: bays = [] } = useQuery({
+    queryKey: ["bays-all"],
+    queryFn: async () => (await supabase.from("bays").select("id, name").order("name")).data ?? [],
   });
 
   const { data: rows = [] } = useQuery<Row[]>({
-    queryKey: ["historial", from, to, teamId, status],
+    queryKey: ["historial", from, to, bayId, status],
     queryFn: async () => {
       let q = supabase
         .from("bookings")
-        .select("id, team_id, start_at, end_at, wash_type, plate, client, observations, status, teams(name)")
+        .select("id, bay_id, start_at, end_at, wash_type, plate, client, observations, status, bays(name)")
         .gte("start_at", startOfDay(new Date(from)).toISOString())
         .lte("start_at", endOfDay(new Date(to)).toISOString())
         .order("start_at", { ascending: false });
-      if (teamId !== "all") q = q.eq("team_id", teamId);
+      if (bayId !== "all") q = q.eq("bay_id", bayId);
       if (status !== "all") q = q.eq("status", status as WashStatus);
       const { data, error } = await q;
       if (error) throw error;
-      return (data ?? []) as Row[];
+      return (data ?? []) as unknown as Row[];
     },
   });
 
@@ -72,7 +72,7 @@ function HistorialPage() {
     const data = filtered.map((r) => ({
       Fecha: format(new Date(r.start_at), "yyyy-MM-dd HH:mm"),
       Fin: format(new Date(r.end_at), "yyyy-MM-dd HH:mm"),
-      Equipo: r.teams?.name ?? "",
+      Bahía: r.bays?.name ?? "",
       Tipo: WASH_TYPES[r.wash_type].label,
       "Duración (min)": Math.round((new Date(r.end_at).getTime() - new Date(r.start_at).getTime()) / 60000),
       Patente: r.plate,
@@ -100,12 +100,12 @@ function HistorialPage() {
         <div className="space-y-1.5"><Label className="text-xs">Desde</Label><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></div>
         <div className="space-y-1.5"><Label className="text-xs">Hasta</Label><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></div>
         <div className="space-y-1.5">
-          <Label className="text-xs">Equipo</Label>
-          <Select value={teamId} onValueChange={setTeamId}>
+          <Label className="text-xs">Bahía</Label>
+          <Select value={bayId} onValueChange={setBayId}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              {teams.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+              <SelectItem value="all">Todas</SelectItem>
+              {bays.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
@@ -130,7 +130,7 @@ function HistorialPage() {
           <thead className="bg-surface-2 text-[10px] uppercase tracking-widest text-muted-foreground">
             <tr>
               <th className="px-3 py-2 text-left">Fecha</th>
-              <th className="px-3 py-2 text-left">Equipo</th>
+              <th className="px-3 py-2 text-left">Bahía</th>
               <th className="px-3 py-2 text-left">Tipo</th>
               <th className="px-3 py-2 text-left">Patente</th>
               <th className="px-3 py-2 text-left">Cliente</th>
@@ -146,7 +146,7 @@ function HistorialPage() {
               return (
                 <tr key={r.id} className="border-t border-border hover:bg-surface-2">
                   <td className="px-3 py-2 font-mono text-xs">{format(new Date(r.start_at), "yyyy-MM-dd HH:mm")}</td>
-                  <td className="px-3 py-2">{r.teams?.name ?? "—"}</td>
+                  <td className="px-3 py-2">{r.bays?.name ?? "—"}</td>
                   <td className="px-3 py-2 text-xs">{WASH_TYPES[r.wash_type].short}</td>
                   <td className="px-3 py-2 font-mono font-semibold">{r.plate}</td>
                   <td className="px-3 py-2 text-muted-foreground">{r.client ?? "—"}</td>

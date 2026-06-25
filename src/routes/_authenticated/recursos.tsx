@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Plus, Trash2, Users, Layers, Clock } from "lucide-react";
+import { Plus, Trash2, Layers, Clock, UserCog, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { useRoles } from "@/hooks/use-role";
 
@@ -21,57 +21,54 @@ function RecursosPage() {
     <div className="p-4 md:p-6 space-y-4 max-w-4xl">
       <div>
         <h1 className="text-xl md:text-2xl font-bold tracking-tight">Recursos Operacionales</h1>
-        <p className="text-sm text-muted-foreground">Gestiona equipos, pistas y turnos. {canManage ? "" : "Solo lectura para tu rol."}</p>
+        <p className="text-sm text-muted-foreground">Gestiona bahías, operadores y turnos. {canManage ? "" : "Solo lectura para tu rol."}</p>
       </div>
 
-      <Tabs defaultValue="teams">
+      <Tabs defaultValue="bays">
         <TabsList>
-          <TabsTrigger value="teams"><Users className="w-4 h-4 mr-1.5" />Equipos</TabsTrigger>
-          <TabsTrigger value="lanes"><Layers className="w-4 h-4 mr-1.5" />Pistas</TabsTrigger>
+          <TabsTrigger value="bays"><Layers className="w-4 h-4 mr-1.5" />Bahías</TabsTrigger>
+          <TabsTrigger value="operators"><UserCog className="w-4 h-4 mr-1.5" />Operadores</TabsTrigger>
           <TabsTrigger value="shifts"><Clock className="w-4 h-4 mr-1.5" />Turnos</TabsTrigger>
         </TabsList>
-        <TabsContent value="teams"><SimpleResource table="teams" label="equipo" canManage={canManage} /></TabsContent>
-        <TabsContent value="lanes"><SimpleResource table="lanes" label="pista" canManage={canManage} /></TabsContent>
+        <TabsContent value="bays"><BaysList canManage={canManage} /></TabsContent>
+        <TabsContent value="operators"><OperatorsList canManage={canManage} /></TabsContent>
         <TabsContent value="shifts"><ShiftsList canManage={canManage} /></TabsContent>
       </Tabs>
     </div>
   );
 }
 
-function SimpleResource({ table, label, canManage }: { table: "teams" | "lanes"; label: string; canManage: boolean }) {
+function BaysList({ canManage }: { canManage: boolean }) {
   const qc = useQueryClient();
   const [name, setName] = useState("");
 
   const { data: items = [] } = useQuery({
-    queryKey: [table, "all"],
-    queryFn: async () => (await supabase.from(table).select("*").order("name")).data ?? [],
+    queryKey: ["bays", "all"],
+    queryFn: async () => (await supabase.from("bays").select("*").order("name")).data ?? [],
   });
 
   const add = useMutation({
     mutationFn: async () => {
       if (!name.trim()) throw new Error("Nombre requerido");
-      const { error } = await supabase.from(table).insert({ name: name.trim() });
+      const { error } = await supabase.from("bays").insert({ name: name.trim() });
       if (error) throw error;
     },
-    onSuccess: () => { setName(""); qc.invalidateQueries({ queryKey: [table] }); qc.invalidateQueries({ queryKey: [table, "all"] }); toast.success(`${label} agregado`); },
+    onSuccess: () => { setName(""); qc.invalidateQueries({ queryKey: ["bays"] }); toast.success("Bahía agregada"); },
     onError: (e: Error) => toast.error(e.message),
   });
-
   const toggle = useMutation({
     mutationFn: async ({ id, active }: { id: string; active: boolean }) => {
-      const { error } = await supabase.from(table).update({ active }).eq("id", id);
+      const { error } = await supabase.from("bays").update({ active }).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: [table] }); qc.invalidateQueries({ queryKey: [table, "all"] }); },
-    onError: (e: Error) => toast.error(e.message),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["bays"] }),
   });
-
   const remove = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from(table).delete().eq("id", id);
+      const { error } = await supabase.from("bays").delete().eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: [table, "all"] }); toast.success(`${label} eliminado`); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["bays"] }); toast.success("Bahía eliminada"); },
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -79,7 +76,7 @@ function SimpleResource({ table, label, canManage }: { table: "teams" | "lanes";
     <div className="space-y-3 pt-3">
       {canManage && (
         <div className="erp-panel p-4 flex gap-2">
-          <Input placeholder={`Nombre del ${label}`} value={name} onChange={(e) => setName(e.target.value)}
+          <Input placeholder="Nombre de la bahía" value={name} onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") add.mutate(); }} />
           <Button onClick={() => add.mutate()} disabled={add.isPending}><Plus className="w-4 h-4" /> Agregar</Button>
         </div>
@@ -90,7 +87,97 @@ function SimpleResource({ table, label, canManage }: { table: "teams" | "lanes";
           <div key={w.id} className="flex items-center justify-between px-4 py-3">
             <div>
               <div className="font-medium">{w.name}</div>
-              <div className="text-xs text-muted-foreground">{w.active ? "Activo" : "Inactivo"}</div>
+              <div className="text-xs text-muted-foreground">{w.active ? "Activa" : "Inactiva"}</div>
+            </div>
+            {canManage && (
+              <div className="flex items-center gap-3">
+                <Switch checked={w.active} onCheckedChange={(v) => toggle.mutate({ id: w.id, active: v })} />
+                <Button variant="ghost" size="icon" onClick={() => { if (confirm(`¿Eliminar ${w.name}?`)) remove.mutate(w.id); }}>
+                  <Trash2 className="w-4 h-4 text-destructive" />
+                </Button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function OperatorsList({ canManage }: { canManage: boolean }) {
+  const qc = useQueryClient();
+  const [name, setName] = useState("");
+  const [isSupervisor, setIsSupervisor] = useState(false);
+
+  const { data: items = [] } = useQuery({
+    queryKey: ["operators", "all"],
+    queryFn: async () => (await supabase.from("operators").select("*").order("name")).data ?? [],
+  });
+
+  const add = useMutation({
+    mutationFn: async () => {
+      if (!name.trim()) throw new Error("Nombre requerido");
+      const { error } = await supabase.from("operators").insert({ name: name.trim(), is_supervisor: isSupervisor });
+      if (error) throw error;
+    },
+    onSuccess: () => { setName(""); setIsSupervisor(false); qc.invalidateQueries({ queryKey: ["operators"] }); toast.success("Operador agregado"); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const toggle = useMutation({
+    mutationFn: async ({ id, active }: { id: string; active: boolean }) => {
+      const { error } = await supabase.from("operators").update({ active }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["operators"] }),
+  });
+  const remove = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("operators").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["operators"] }); toast.success("Operador eliminado"); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const activeOps = items.filter((o) => o.active && !o.is_supervisor).length;
+  const supervisors = items.filter((o) => o.is_supervisor).length;
+
+  return (
+    <div className="space-y-3 pt-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="erp-panel p-3">
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Operadores activos</div>
+          <div className="text-2xl font-mono font-bold mt-1 text-primary">{activeOps}</div>
+        </div>
+        <div className="erp-panel p-3">
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Supervisores</div>
+          <div className="text-2xl font-mono font-bold mt-1 text-accent">{supervisors}</div>
+        </div>
+      </div>
+
+      {canManage && (
+        <div className="erp-panel p-4 flex flex-wrap gap-2 items-center">
+          <Input className="flex-1 min-w-[200px]" placeholder="Nombre del operador" value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") add.mutate(); }} />
+          <label className="flex items-center gap-2 text-xs">
+            <Switch checked={isSupervisor} onCheckedChange={setIsSupervisor} /> Supervisor
+          </label>
+          <Button onClick={() => add.mutate()} disabled={add.isPending}><Plus className="w-4 h-4" /> Agregar</Button>
+        </div>
+      )}
+      <div className="erp-panel divide-y divide-border">
+        {items.length === 0 && <div className="p-4 text-sm text-muted-foreground">Sin registros.</div>}
+        {items.map((w) => (
+          <div key={w.id} className="flex items-center justify-between px-4 py-3">
+            <div className="flex items-center gap-2">
+              {w.is_supervisor && <ShieldCheck className="w-4 h-4 text-accent" />}
+              <div>
+                <div className="font-medium">{w.name}</div>
+                <div className="text-xs text-muted-foreground">
+                  {w.is_supervisor ? "Supervisor (Jefe)" : "Operador"} · {w.active ? "Activo" : "Inactivo"}
+                </div>
+              </div>
             </div>
             {canManage && (
               <div className="flex items-center gap-3">

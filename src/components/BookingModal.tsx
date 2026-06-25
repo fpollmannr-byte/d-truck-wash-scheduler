@@ -7,15 +7,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { WASH_TYPES, STATUS_META, computeEndAt, formatDuration, validateSchedule, type WashType, type WashStatus } from "@/lib/wash-types";
+import {
+  WASH_TYPES, STATUS_META, computeEndAt, formatDuration, validateSchedule,
+  OPERATORS_POOL, type WashType, type WashStatus,
+} from "@/lib/wash-types";
 import { Checkbox } from "@/components/ui/checkbox";
-import { AlertTriangle, Trash2 } from "lucide-react";
+import { AlertTriangle, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 
 export type BookingDraft = {
   id?: string;
-  team_id: string;
+  bay_id: string;
   wash_type: WashType;
   plate: string;
   client: string;
@@ -25,12 +28,12 @@ export type BookingDraft = {
   supervisor_approved: boolean;
 };
 
-export function emptyDraft(teamId = "", startISO?: string): BookingDraft {
+export function emptyDraft(bayId = "", startISO?: string): BookingDraft {
   const d = startISO ? new Date(startISO) : new Date();
   d.setSeconds(0, 0);
   if (!startISO) d.setMinutes(0);
   return {
-    team_id: teamId,
+    bay_id: bayId,
     wash_type: "exterior",
     plate: "",
     client: "",
@@ -59,62 +62,48 @@ export function BookingModal({
 
   useEffect(() => { setD(draft); }, [draft]);
 
-  const { data: teams = [] } = useQuery({
-    queryKey: ["teams"],
+  const { data: bays = [] } = useQuery({
+    queryKey: ["bays"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("teams").select("*").eq("active", true).order("name");
+      const { data, error } = await supabase.from("bays").select("id, name, active").eq("active", true).order("name");
       if (error) throw error;
       return data;
     },
   });
 
-  const { data: lanes = [] } = useQuery({
-    queryKey: ["lanes"],
+  // Reservas que potencialmente solapan con el rango actual (para calcular bahías y operadores ocupados)
+  const start_iso_preview = d?.start_at ? new Date(d.start_at).toISOString() : null;
+  const end_iso_preview = d && start_iso_preview ? computeEndAt(start_iso_preview, d.wash_type) : null;
+
+  const { data: overlapping = [] } = useQuery({
+    enabled: !!(start_iso_preview && end_iso_preview),
+    queryKey: ["bookings-overlap", start_iso_preview, end_iso_preview, d?.id],
     queryFn: async () => {
-      const { data, error } = await supabase.from("lanes").select("*").eq("active", true).order("name");
+      const { data, error } = await supabase
+        .from("bookings")
+        .select("id, bay_id, start_at, end_at, status, operators_needed")
+        .neq("status", "cancelado")
+        .lt("start_at", end_iso_preview!)
+        .gt("end_at", start_iso_preview!);
       if (error) throw error;
-      return data;
+      return (data ?? []).filter((b) => b.id !== d?.id);
     },
   });
 
   if (!d) return null;
 
-  const start_iso_preview = d.start_at ? new Date(d.start_at).toISOString() : null;
-  const end_iso_preview = start_iso_preview ? computeEndAt(start_iso_preview, d.wash_type) : null;
   const schedule = start_iso_preview && end_iso_preview
     ? validateSchedule(start_iso_preview, end_iso_preview, d.supervisor_approved)
     : null;
 
-  async function findFreeLanes(startISO: string, endISO: string, excludeBookingId?: string): Promise<string[] | null> {
-    const needed = WASH_TYPES[d!.wash_type].lanes;
-    const start = new Date(startISO);
-    const end = new Date(endISO);
-
-    // Fetch active bookings that could overlap with their lanes
-    const { data: candidates, error } = await supabase
-      .from("bookings")
-      .select("id, start_at, end_at, status, booking_lanes(lane_id)")
-      .neq("status", "cancelado")
-      .lt("start_at", endISO)
-      .gt("end_at", startISO);
-    if (error) throw error;
-
-    const busy = new Set<string>();
-    (candidates ?? []).forEach((b) => {
-      if (excludeBookingId && b.id === excludeBookingId) return;
-      if (rangesOverlap(start, end, new Date(b.start_at), new Date(b.end_at))) {
-        (b.booking_lanes ?? []).forEach((bl: { lane_id: string }) => busy.add(bl.lane_id));
-      }
-    });
-
-    const free = lanes.filter((l) => !busy.has(l.id)).slice(0, needed);
-    if (free.length < needed) return null;
-    return free.map((l) => l.id);
-  }
+  const occupiedBays = new Set(overlapping.map((b) => b.bay_id));
+  const usedOps = overlapping.reduce((acc, b) => acc + (b.operators_needed ?? 3), 0);
+  const availableOps = Math.max(0, OPERATORS_POOL - usedOps);
+  const needsOps = WASH_TYPES[d.wash_type].operators;
 
   async function save() {
     if (!d) return;
-    if (!d.team_id) return toast.error("Selecciona un equipo");
+    if (!d.bay_id) return toast.error("Selecciona una bahía");
     if (!d.plate.trim()) return toast.error("Ingresa la patente");
     const start_iso = new Date(d.start_at).toISOString();
     const end_iso = computeEndAt(start_iso, d.wash_type);
@@ -123,15 +112,8 @@ export function BookingModal({
 
     setSaving(true);
     try {
-      const needed = WASH_TYPES[d.wash_type].lanes;
-      const freeLaneIds = await findFreeLanes(start_iso, end_iso, d.id);
-      if (!freeLaneIds) {
-        setSaving(false);
-        return toast.error(`No hay ${needed} pista(s) disponible(s) en ese horario`);
-      }
-
       const payload = {
-        team_id: d.team_id,
+        bay_id: d.bay_id,
         wash_type: d.wash_type,
         plate: d.plate.trim().toUpperCase(),
         client: d.client.trim() || null,
@@ -140,24 +122,15 @@ export function BookingModal({
         end_at: end_iso,
         status: d.status,
         supervisor_approved: d.supervisor_approved,
+        operators_needed: WASH_TYPES[d.wash_type].operators,
       };
 
-      let bookingId = d.id;
-      if (bookingId) {
-        const { error } = await supabase.from("bookings").update(payload).eq("id", bookingId);
+      if (d.id) {
+        const { error } = await supabase.from("bookings").update(payload).eq("id", d.id);
         if (error) throw error;
-        await supabase.from("booking_lanes").delete().eq("booking_id", bookingId);
       } else {
-        const { data: inserted, error } = await supabase.from("bookings").insert(payload).select("id").single();
+        const { error } = await supabase.from("bookings").insert(payload);
         if (error) throw error;
-        bookingId = inserted.id;
-      }
-
-      const laneRows = freeLaneIds.map((lane_id) => ({ booking_id: bookingId!, lane_id }));
-      const { error: laneErr } = await supabase.from("booking_lanes").insert(laneRows);
-      if (laneErr) {
-        if (!d.id) await supabase.from("bookings").delete().eq("id", bookingId!);
-        throw laneErr;
       }
 
       toast.success(d.id ? "Lavado actualizado" : "Lavado creado");
@@ -183,7 +156,7 @@ export function BookingModal({
   }
 
   const duration = WASH_TYPES[d.wash_type].minutes;
-  const lanesNeeded = WASH_TYPES[d.wash_type].lanes;
+  const opsShortage = availableOps < needsOps;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -195,7 +168,7 @@ export function BookingModal({
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5 col-span-2">
-              <Label>Tipo de lavado</Label>
+              <Label>Tipo de servicio</Label>
               <Select value={d.wash_type} onValueChange={(v: WashType) => setD({ ...d, wash_type: v })}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -206,17 +179,24 @@ export function BookingModal({
               </Select>
               <p className="text-xs text-muted-foreground">
                 Duración: <span className="text-primary font-medium">{formatDuration(duration)}</span>
-                {" · "}Pistas requeridas: <span className="text-primary font-medium">{lanesNeeded}</span>
-                {" · "}Asignación automática
+                {" · "}Operadores requeridos: <span className="text-primary font-medium">{needsOps}</span>
+                {" / "}{OPERATORS_POOL}
               </p>
             </div>
 
             <div className="space-y-1.5">
-              <Label>Equipo</Label>
-              <Select value={d.team_id} onValueChange={(v) => setD({ ...d, team_id: v })}>
+              <Label>Bahía</Label>
+              <Select value={d.bay_id} onValueChange={(v) => setD({ ...d, bay_id: v })}>
                 <SelectTrigger><SelectValue placeholder="Selecciona" /></SelectTrigger>
                 <SelectContent>
-                  {teams.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                  {bays.map((b) => {
+                    const occupied = occupiedBays.has(b.id) && b.id !== draft?.bay_id;
+                    return (
+                      <SelectItem key={b.id} value={b.id} disabled={occupied}>
+                        {b.name} {occupied ? "· Ocupada" : ""}
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
             </div>
@@ -251,6 +231,22 @@ export function BookingModal({
               </p>
             </div>
 
+            <div
+              className={`col-span-2 flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-xs ${
+                opsShortage
+                  ? "border-destructive/40 bg-destructive/10 text-destructive"
+                  : "border-border bg-surface-2 text-muted-foreground"
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                <Users className="w-4 h-4" /> Operadores disponibles en ese horario
+              </span>
+              <span className="font-mono font-semibold">
+                {availableOps} / {OPERATORS_POOL}
+                {opsShortage && " · INSUFICIENTE"}
+              </span>
+            </div>
+
             {schedule && !schedule.ok && (
               <div
                 className={`col-span-2 flex items-start gap-2 rounded-md border px-3 py-2 text-xs ${
@@ -271,7 +267,7 @@ export function BookingModal({
                 onCheckedChange={(v) => setD({ ...d, supervisor_approved: v === true })}
               />
               <Label htmlFor="supervisor-approved" className="text-sm font-normal cursor-pointer">
-                Cuenta con aprobación de jefatura (fuera de horario o sábados)
+                Cuenta con aprobación de jefatura (fuera de horario, sábados o supervisor operando)
               </Label>
             </div>
 
